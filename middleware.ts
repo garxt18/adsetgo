@@ -12,7 +12,14 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  const devAdminOverride = request.cookies.get("dev_admin_override")?.value;
+  // The dev override is a local convenience only. Reading it in production would
+  // let anyone bypass authentication by setting a single cookie, so it is gated
+  // to non-production builds and treated as absent everywhere else.
+  const isDevEnvironment = process.env.NODE_ENV !== "production";
+  const devAdminOverride = isDevEnvironment
+    ? request.cookies.get("dev_admin_override")?.value
+    : undefined;
+
   if (devAdminOverride) {
     return response;
   }

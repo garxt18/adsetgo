@@ -1,10 +1,17 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { requireApiAuth, requireAgencyAccess } from "@/lib/api-auth";
 import { NextResponse } from "next/server";
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ slug: string }> }
 ) {
+  const { profile, response: authError } = await requireApiAuth([
+    "master_admin",
+    "agency_admin",
+  ]);
+  if (authError) return authError;
+
   try {
     const { slug } = await params;
 
@@ -21,6 +28,9 @@ export async function GET(
         { status: 404 }
       );
     }
+
+    const denied = requireAgencyAccess(profile, agencyData.id);
+    if (denied) return denied;
 
     // Get clients for this agency
     const { data: clientsData, error: clientsError } = await supabaseAdmin
@@ -50,6 +60,12 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ slug: string }> }
 ) {
+  const { profile, response: authError } = await requireApiAuth([
+    "master_admin",
+    "agency_admin",
+  ]);
+  if (authError) return authError;
+
   try {
     const { slug } = await params;
     const body = await request.json();
@@ -75,6 +91,9 @@ export async function POST(
         { status: 404 }
       );
     }
+
+    const denied = requireAgencyAccess(profile, agencyData.id);
+    if (denied) return denied;
 
     // Create client
     const { data: newClient, error: clientError } = await supabaseAdmin

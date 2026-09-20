@@ -7,8 +7,19 @@ export async function GET() {
     return NextResponse.json({ error: "Not allowed in production" }, { status: 403 });
   }
 
-  const email = "devsaxena363@gmail.com";
-  const password = "Devil@363";
+  // Sourced from the environment so no working credential sits in source.
+  const email = process.env.DEV_ADMIN_EMAIL;
+  const password = process.env.DEV_ADMIN_PASSWORD;
+
+  if (!email || !password) {
+    return NextResponse.json(
+      {
+        error:
+          "Set DEV_ADMIN_EMAIL and DEV_ADMIN_PASSWORD in .env.local to use this route.",
+      },
+      { status: 400 }
+    );
+  }
 
   try {
     // Create the auth user via service role

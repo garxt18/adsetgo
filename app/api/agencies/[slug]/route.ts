@@ -1,10 +1,15 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { requireApiAuth, requireAgencyAccess } from "@/lib/api-auth";
 import { NextResponse } from "next/server";
 
 export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ slug: string }> }
 ) {
+  // Deleting an agency cascades to its clients, so it stays master-admin only.
+  const { response: authError } = await requireApiAuth(["master_admin"]);
+  if (authError) return authError;
+
   try {
     const { slug } = await params;
 
@@ -49,6 +54,12 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ slug: string }> }
 ) {
+  const { profile, response: authError } = await requireApiAuth([
+    "master_admin",
+    "agency_admin",
+  ]);
+  if (authError) return authError;
+
   try {
     const { slug } = await params;
 
@@ -57,6 +68,13 @@ export async function GET(
       .select("id, name, slug, google_ads_manager_customer_id, google_ads_connection_status, google_ads_refresh_token")
       .eq("slug", slug)
       .maybeSingle();
+
+    // This response exposes Google Ads connection detail, so confirm the caller
+    // belongs to this agency before shaping it.
+    if (agencyDataRaw) {
+      const denied = requireAgencyAccess(profile, agencyDataRaw.id);
+      if (denied) return denied;
+    }
 
     // Mask refresh token for safe client-side display
     const agencyData = agencyDataRaw

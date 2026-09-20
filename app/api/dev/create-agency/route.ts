@@ -2,10 +2,17 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
+  // This route trusts a raw cookie value rather than a verified session, so it
+  // must not exist outside development. Without this guard the check below was
+  // satisfied by anyone who set the cookie themselves.
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   try {
     const cookie = request.headers.get("cookie") || "";
 
-    // Only allow this in dev when the dev_admin_override cookie is present
+    // Local convenience only; the production guard above is what makes this safe.
     if (!cookie.includes("dev_admin_override=")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

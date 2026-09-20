@@ -102,20 +102,10 @@ function summarizeGoogleAdsRows(rows: GoogleAdsRow[]) {
 }
 
 export async function GET(request: NextRequest) {
-  // Try server-side cookie-based auth first
-  let profile = await getCurrentProfile();
-
-  // If cookie-based profile not present, allow fallback via userId query param
-  const userIdFallback = request.nextUrl.searchParams.get("userId");
-  if (!profile && userIdFallback) {
-    const { data: fallbackProfile } = await supabaseAdmin
-      .from("profiles")
-      .select("*")
-      .eq("id", userIdFallback)
-      .maybeSingle();
-
-    profile = (fallbackProfile as unknown as typeof profile) ?? null;
-  }
+  // Authentication comes from the session cookie only. A `?userId=` fallback
+  // previously accepted any profile id from the query string, which let a caller
+  // impersonate any user by guessing a UUID.
+  const profile = await getCurrentProfile();
 
   if (!profile) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });

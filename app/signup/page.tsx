@@ -5,13 +5,16 @@ import { useRouter } from "next/navigation";
 
 import { supabase } from "../../lib/supabase";
 
-const DEFAULT_MASTER_ADMIN_EMAIL = "devsaxena363@gmail.com";
-const DEFAULT_MASTER_ADMIN_PASSWORD = "Devil@363";
+// Local development convenience only; sourced from the environment so that no
+// working credential lives in source, and ignored outside development.
+const IS_DEV = process.env.NODE_ENV !== "production";
+const DEV_ADMIN_EMAIL = process.env.NEXT_PUBLIC_DEV_ADMIN_EMAIL ?? "";
+const DEV_ADMIN_PASSWORD = process.env.NEXT_PUBLIC_DEV_ADMIN_PASSWORD ?? "";
 
 export default function SignupPage() {
   const router = useRouter();
-  const [email, setEmail] = useState(DEFAULT_MASTER_ADMIN_EMAIL);
-  const [password, setPassword] = useState(DEFAULT_MASTER_ADMIN_PASSWORD);
+  const [email, setEmail] = useState(IS_DEV ? DEV_ADMIN_EMAIL : "");
+  const [password, setPassword] = useState(IS_DEV ? DEV_ADMIN_PASSWORD : "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -40,7 +43,14 @@ export default function SignupPage() {
           {
             id: user.id,
             email: user.email,
-            role: user.email === DEFAULT_MASTER_ADMIN_EMAIL ? "master_admin" : "master_admin",
+            // Both branches of this used to be "master_admin", so any visitor who
+            // signed up here became the platform owner. Only the configured local
+            // dev account may self-assign that role; everyone else starts as a
+            // client and is promoted deliberately.
+            role:
+              IS_DEV && DEV_ADMIN_EMAIL && user.email === DEV_ADMIN_EMAIL
+                ? "master_admin"
+                : "client",
           },
           { onConflict: "id" }
         );

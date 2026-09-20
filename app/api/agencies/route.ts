@@ -1,7 +1,11 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { requireApiAuth } from "@/lib/api-auth";
 import { NextResponse } from "next/server";
 
 export async function GET() {
+  const { response: authError } = await requireApiAuth(["master_admin"]);
+  if (authError) return authError;
+
   try {
     // Use admin client to bypass RLS and fetch all agencies
     const { data, error } = await supabaseAdmin
@@ -27,6 +31,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const { response: authError } = await requireApiAuth(["master_admin"]);
+  if (authError) return authError;
+
   try {
     const body = await request.json();
     const { name, slug, google_ads_manager_customer_id } = body;
@@ -44,7 +51,9 @@ export async function POST(request: Request) {
         name,
         slug,
         google_ads_manager_customer_id: google_ads_manager_customer_id || null,
-        google_ads_connection_status: google_ads_manager_customer_id ? "connected" : "pending",
+        // Supplying a manager ID is not the same as having authorised Google.
+        // Only the OAuth callback may mark an agency "connected".
+        google_ads_connection_status: "disconnected",
       })
       .select()
       .maybeSingle();

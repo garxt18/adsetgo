@@ -38,11 +38,19 @@ export async function getSupabaseServerClient() {
   });
 }
 
+// Local-only escape hatch. Never honoured in production, and the account it maps
+// to comes from the environment so no credential lives in source. When unset,
+// the override simply does not apply.
+const DEV_ADMIN_EMAIL = process.env.DEV_ADMIN_EMAIL ?? "";
+
 export async function getCurrentProfile(): Promise<AppProfile | null> {
   const cookieStore = await cookies();
-  const devAdminOverride = cookieStore.get("dev_admin_override")?.value;
+  const isDevEnvironment = process.env.NODE_ENV !== "production";
+  const devAdminOverride = isDevEnvironment
+    ? cookieStore.get("dev_admin_override")?.value
+    : undefined;
 
-  if (devAdminOverride === "devsaxena363@gmail.com") {
+  if (devAdminOverride && devAdminOverride === DEV_ADMIN_EMAIL) {
     const { data: profile } = await supabaseAdmin
       .from("profiles")
       .select("*")

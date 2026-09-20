@@ -5,18 +5,22 @@ import { useRouter } from "next/navigation";
 
 import { supabase } from "../../lib/supabase";
 
-const DEFAULT_MASTER_ADMIN_EMAIL = "devsaxena363@gmail.com";
-const DEFAULT_MASTER_ADMIN_PASSWORD = "Devil@363";
+// Local development convenience only. These come from the environment so that no
+// working credential lives in source (and therefore in git history), and they are
+// ignored entirely outside development.
+const IS_DEV = process.env.NODE_ENV !== "production";
+const DEV_ADMIN_EMAIL = process.env.NEXT_PUBLIC_DEV_ADMIN_EMAIL ?? "";
+const DEV_ADMIN_PASSWORD = process.env.NEXT_PUBLIC_DEV_ADMIN_PASSWORD ?? "";
 
 function setDevAdminOverride() {
-  document.cookie = `dev_admin_override=${DEFAULT_MASTER_ADMIN_EMAIL}; path=/; max-age=86400; SameSite=Lax`;
+  document.cookie = `dev_admin_override=${DEV_ADMIN_EMAIL}; path=/; max-age=86400; SameSite=Lax`;
 }
 
 export default function LoginPage() {
   const router = useRouter();
 
-  const [email, setEmail] = useState(DEFAULT_MASTER_ADMIN_EMAIL);
-  const [password, setPassword] = useState("Devil@363");
+  const [email, setEmail] = useState(IS_DEV ? DEV_ADMIN_EMAIL : "");
+  const [password, setPassword] = useState(IS_DEV ? DEV_ADMIN_PASSWORD : "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [debugInfo, setDebugInfo] = useState("");
@@ -28,8 +32,11 @@ export default function LoginPage() {
     setDebugInfo("");
 
     if (
-      email.trim().toLowerCase() === DEFAULT_MASTER_ADMIN_EMAIL &&
-      password === DEFAULT_MASTER_ADMIN_PASSWORD
+      IS_DEV &&
+      DEV_ADMIN_EMAIL &&
+      DEV_ADMIN_PASSWORD &&
+      email.trim().toLowerCase() === DEV_ADMIN_EMAIL.toLowerCase() &&
+      password === DEV_ADMIN_PASSWORD
     ) {
       setDevAdminOverride();
       setLoading(false);
@@ -68,7 +75,10 @@ export default function LoginPage() {
           {
             id: data.user.id,
             email: data.user.email,
-            role: data.user.email === DEFAULT_MASTER_ADMIN_EMAIL ? "master_admin" : "client",
+            role:
+              DEV_ADMIN_EMAIL && data.user.email === DEV_ADMIN_EMAIL
+                ? "master_admin"
+                : "client",
           },
           { onConflict: "id" }
         );

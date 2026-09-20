@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentProfile } from "@/lib/supabase-server";
 
 export async function GET(request: NextRequest) {
+  // Diagnostic endpoint: echoes cookie state and profile, so it must never be
+  // reachable in a deployed environment.
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   try {
     // Read raw cookie header (may be undefined)
     const cookieHeader = request.headers.get("cookie") ?? null;

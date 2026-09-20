@@ -1,10 +1,17 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { requireApiAuth, requireAgencyAccess, requireClientAccess } from "@/lib/api-auth";
 import { NextResponse } from "next/server";
 
 export async function DELETE(
   _request: Request,
   context: { params: Promise<{ slug: string; id: string }> }
 ) {
+  const { profile, response: authError } = await requireApiAuth([
+    "master_admin",
+    "agency_admin",
+  ]);
+  if (authError) return authError;
+
   try {
     const { slug, id } = await context.params;
 
@@ -21,6 +28,9 @@ export async function DELETE(
         { status: 404 }
       );
     }
+
+    const denied = requireAgencyAccess(profile, agencyData.id);
+    if (denied) return denied;
 
     // Delete client
     const { error: deleteError } = await supabaseAdmin
@@ -50,10 +60,11 @@ export async function GET(
   request: Request,
   context: { params: Promise<{ slug: string; id: string }> }
 ) {
+  const { profile, response: authError } = await requireApiAuth();
+  if (authError) return authError;
+
   try {
     const { slug, id } = await context.params;
-
-    console.log(`[api] GET client - params received: slug=${slug} id=${id}`);
 
     // Verify agency exists
     const { data: agencyData, error: agencyError } = await supabaseAdmin
@@ -61,8 +72,6 @@ export async function GET(
       .select("id, slug, google_ads_manager_customer_id")
       .eq("slug", slug)
       .maybeSingle();
-
-    console.log("[api] agency query result:", { agencyData, agencyError });
 
     if (agencyError || !agencyData) {
       const debug = request.url.includes("debug=1");
@@ -93,6 +102,10 @@ export async function GET(
       return NextResponse.json(body, { status: 404 });
     }
 
+    // A client may read its own record; agency staff may read any in their agency.
+    const denied = requireClientAccess(profile, clientData);
+    if (denied) return denied;
+
     return NextResponse.json(clientData);
   } catch (error) {
     console.error("Error fetching client:", error);
@@ -104,6 +117,12 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ slug: string; id: string }> }
 ) {
+  const { profile, response: authError } = await requireApiAuth([
+    "master_admin",
+    "agency_admin",
+  ]);
+  if (authError) return authError;
+
   try {
     const { slug, id } = await context.params;
     const body = await request.json();
@@ -119,6 +138,9 @@ export async function PATCH(
     if (agencyError || !agencyData) {
       return NextResponse.json({ error: "Agency not found" }, { status: 404 });
     }
+
+    const denied = requireAgencyAccess(profile, agencyData.id);
+    if (denied) return denied;
 
     const { data: updatedClient, error: updateError } = await supabaseAdmin
       .from("clients")

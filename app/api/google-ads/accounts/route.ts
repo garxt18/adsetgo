@@ -7,24 +7,36 @@ import {
   type FullGoogleAdsAccount,
 } from "@/lib/google-ads/auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { getCurrentProfile } from "@/lib/supabase-server";
+import { requireApiAuth, requireAgencyAccess } from "@/lib/api-auth";
 
 export async function GET(request: NextRequest) {
-  const profile = await getCurrentProfile();
+  // This route exposes an agency's Google Ads account tree, so it is restricted
+  // to agency staff rather than every signed-in user.
+  const { profile, response: authError } = await requireApiAuth([
+    "master_admin",
+    "agency_admin",
+  ]);
+  if (authError) return authError;
+
   const agencyId = request.nextUrl.searchParams.get("agencyId");
   const agencySlug = request.nextUrl.searchParams.get("agencySlug");
 
-  // Lookup agency by ID or slug, or fallback to profile agency/first agency
+  // Look up the agency by ID or slug, else fall back to the caller's own agency.
+  // There is deliberately no "first agency in the table" fallback: it returned
+  // an arbitrary tenant's accounts to anyone who omitted both parameters.
   let agencyQuery = supabaseAdmin.from("agencies").select("*");
 
   if (agencyId) {
     agencyQuery = agencyQuery.eq("id", agencyId);
   } else if (agencySlug) {
     agencyQuery = agencyQuery.eq("slug", agencySlug);
-  } else if (profile?.agency_id) {
+  } else if (profile.agency_id) {
     agencyQuery = agencyQuery.eq("id", profile.agency_id);
   } else {
-    agencyQuery = agencyQuery.limit(1);
+    return NextResponse.json(
+      { error: "agencyId or agencySlug is required." },
+      { status: 400 }
+    );
   }
 
   const { data: agency, error: agencyError } = await agencyQuery.maybeSingle();
@@ -32,6 +44,13 @@ export async function GET(request: NextRequest) {
   if (agencyError) {
     return NextResponse.json({ error: agencyError.message }, { status: 500 });
   }
+
+  if (!agency) {
+    return NextResponse.json({ error: "Agency not found." }, { status: 404 });
+  }
+
+  const denied = requireAgencyAccess(profile, agency.id);
+  if (denied) return denied;
 
   try {
     // 1. Get access token

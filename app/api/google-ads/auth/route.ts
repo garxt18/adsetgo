@@ -1,8 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { requireApiAuth, requireAgencyAccess } from "@/lib/api-auth";
+
 export async function GET(request: NextRequest) {
+  const { profile, response: authError } = await requireApiAuth([
+    "master_admin",
+    "agency_admin",
+  ]);
+  if (authError) return authError;
+
   // Allow starting OAuth for a specific agency via ?agencyId=<id>
   const agencyId = request.nextUrl.searchParams.get("agencyId") ?? "";
+
+  // The callback writes a refresh token onto whichever agency `state` names, so
+  // the caller must be entitled to that agency before the flow begins.
+  if (agencyId) {
+    const denied = requireAgencyAccess(profile, agencyId);
+    if (denied) return denied;
+  }
 
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID!,
