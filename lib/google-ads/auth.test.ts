@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { normalizeGoogleAdsCustomerId } from "./auth.ts";
+import { normalizeGoogleAdsCustomerId } from "./format.ts";
 
 test("normalizeGoogleAdsCustomerId removes non-digit characters", () => {
   assert.equal(normalizeGoogleAdsCustomerId("504-444-8248"), "5044448248");

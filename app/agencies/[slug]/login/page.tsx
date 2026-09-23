@@ -21,9 +21,6 @@ export default function AgencyLoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [isSignup, setIsSignup] = useState(false);
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
   const [loadingAgency, setLoadingAgency] = useState(true);
 
   // Load agency data on mount
@@ -31,7 +28,7 @@ export default function AgencyLoginPage() {
     async function loadAgency() {
       setLoadingAgency(true);
       try {
-        const res = await fetch(`/api/agencies/${slug}`);
+        const res = await fetch(`/api/public/agencies/${slug}`);
         if (!res.ok) {
           setError("Agency not found");
           setLoadingAgency(false);
@@ -97,60 +94,6 @@ export default function AgencyLoginPage() {
     }
   }
 
-  async function handleSignup(e: React.FormEvent) {
-    e.preventDefault();
-    if (!agency) return;
-
-    if (!firstName || !lastName) {
-      setError("Please enter your name");
-      return;
-    }
-
-    setLoading(true);
-    setError("");
-
-    try {
-      const response = await fetch("/api/auth/agency-admin/signup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          password,
-          agencyId: agency.id,
-          agencySlug: agency.slug,
-          firstName,
-          lastName,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setError(data.error || "Signup failed");
-        setLoading(false);
-        return;
-      }
-
-      // Sign in the user
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (signInError) {
-        setError("Account created but login failed: " + signInError.message);
-        setLoading(false);
-        return;
-      }
-
-      setLoading(false);
-      router.push(`/agencies/${slug}/dashboard`);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Signup failed");
-      setLoading(false);
-    }
-  }
-
   if (loadingAgency) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-100 p-6">
@@ -187,40 +130,7 @@ export default function AgencyLoginPage() {
           </div>
         ) : null}
 
-        <form onSubmit={isSignup ? handleSignup : handleLogin} className="mt-8 space-y-4">
-          {isSignup && (
-            <>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                    First Name
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="John"
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none transition focus:border-slate-500"
-                  />
-                </div>
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Last Name
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Doe"
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none transition focus:border-slate-500"
-                  />
-                </div>
-              </div>
-            </>
-          )}
-
+        <form onSubmit={handleLogin} className="mt-8 space-y-4">
           <div>
             <label className="mb-2 block text-sm font-medium text-slate-700">Email</label>
             <input
@@ -243,11 +153,6 @@ export default function AgencyLoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none transition focus:border-slate-500"
             />
-            {isSignup && (
-              <p className="mt-1 text-xs text-slate-500">
-                Minimum 8 characters
-              </p>
-            )}
           </div>
 
           <button
@@ -255,29 +160,15 @@ export default function AgencyLoginPage() {
             disabled={loading}
             className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {loading ? (isSignup ? "Creating account..." : "Logging in...") : (isSignup ? "Create Account" : "Login")}
+            {loading ? "Logging in..." : "Login"}
           </button>
         </form>
 
-        <div className="mt-4 text-center">
-          <p className="text-sm text-slate-600">
-            {isSignup ? "Already have an account? " : "Don't have an account? "}
-            <button
-              type="button"
-              onClick={() => {
-                setIsSignup(!isSignup);
-                setError("");
-                setEmail("");
-                setPassword("");
-                setFirstName("");
-                setLastName("");
-              }}
-              className="font-semibold text-slate-900 underline hover:text-slate-700"
-            >
-              {isSignup ? "Login" : "Sign Up"}
-            </button>
-          </p>
-        </div>
+        <p className="mt-4 text-center text-sm text-slate-600">
+          Don&apos;t have an account? Accounts are created by invitation only —
+          check your email for a link from {agency.name}.
+        </p>
+
       </div>
     </main>
   );

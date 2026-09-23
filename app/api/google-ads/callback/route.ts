@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { verifyAgencyState } from "@/lib/google-ads/state";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -21,43 +22,54 @@ export async function GET(request: NextRequest) {
     );
   }
 
-const tokenResponse = await fetch(
-  "https://oauth2.googleapis.com/token",
-  {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
-      code,
-      client_id: process.env.GOOGLE_CLIENT_ID!,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-      redirect_uri: process.env.GOOGLE_ADS_REDIRECT_URI!,
-      grant_type: "authorization_code",
-    }),
-  }
-);
-
-const tokenData = await tokenResponse.json();
-
-if (!tokenResponse.ok) {
-  return NextResponse.json(
-    {
-      error: "Failed to exchange authorization code",
-      details: tokenData,
-    },
-    { status: 500 }
-  );
-}
-  // Persist refresh token to agency if state contains agency id or slug
-  const state = searchParams.get("state");
+  // This route has no session of its own: Google sends the browser here. The
+  // only thing tying the incoming code to an agency is `state`, so an unsigned
+  // or expired one is refused rather than trusted.
+  const agencyId = verifyAgencyState(searchParams.get("state"));
   let redirectSlug: string | null = null;
 
-  if (state) {
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(state);
-    const { data: agency } = isUuid
-      ? await supabaseAdmin.from("agencies").select("id, slug").eq("id", state).maybeSingle()
-      : await supabaseAdmin.from("agencies").select("id, slug").eq("slug", state).maybeSingle();
+  if (!agencyId) {
+    return NextResponse.json(
+      { error: "Invalid or expired authorization state. Start the connection again." },
+      { status: 400 }
+    );
+  }
+
+  const tokenResponse = await fetch(
+    "https://oauth2.googleapis.com/token",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        code,
+        client_id: process.env.GOOGLE_CLIENT_ID!,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+        redirect_uri: process.env.GOOGLE_ADS_REDIRECT_URI!,
+        grant_type: "authorization_code",
+      }),
+    }
+  );
+
+  const tokenData = await tokenResponse.json();
+
+  if (!tokenResponse.ok) {
+    return NextResponse.json(
+      {
+        error: "Failed to exchange authorization code",
+        details: tokenData,
+      },
+      { status: 500 }
+    );
+  }
+
+  {
+    const { data: agency } = await supabaseAdmin
+      .from("agencies")
+      .select("id, slug")
+      .eq("id", agencyId)
+      .maybeSingle();
 
     if (agency) {
       redirectSlug = agency.slug;

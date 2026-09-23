@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireApiAuth, requireAgencyAccess } from "@/lib/api-auth";
+import { signAgencyState } from "@/lib/google-ads/state";
 
 export async function GET(request: NextRequest) {
   const { profile, response: authError } = await requireApiAuth([
@@ -28,9 +29,10 @@ export async function GET(request: NextRequest) {
     prompt: "consent",
   });
 
-  // Pass agencyId in state so callback knows where to store refresh token.
+  // The callback trusts `state` to name the agency, so it carries a signature
+  // proving the access check above happened for this exact agency.
   if (agencyId) {
-    params.set("state", agencyId);
+    params.set("state", signAgencyState(agencyId));
   }
 
   const authorizationUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;

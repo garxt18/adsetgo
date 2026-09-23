@@ -1,43 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { getGoogleAdsAccessToken, normalizeGoogleAdsCustomerId } from "../../../lib/google-ads/auth";
+import {
+  fetchGoogleAdsMetrics,
+  getGoogleAdsAccessToken,
+  type GoogleAdsRow,
+} from "../../../lib/google-ads/auth";
+import { normalizeGoogleAdsCustomerId } from "../../../lib/google-ads/format";
 import { supabaseAdmin } from "../../../lib/supabase-admin";
 import { getCurrentProfile } from "../../../lib/supabase-server";
-
-type GoogleAdsRow = {
-  campaign?: {
-    id?: string | number;
-    name?: string;
-    status?: string;
-  };
-  metrics?: {
-    impressions?: number | string;
-    clicks?: number | string;
-    cost_micros?: number | string;
-    conversions?: number | string;
-    conversions_value?: number | string;
-    ctr?: number | string;
-    average_cpc?: number | string;
-    average_cpm?: number | string;
-  };
-  segments?: {
-    date?: string;
-  };
-};
-
-type GoogleAdsPayload =
-  | {
-      results?: GoogleAdsRow[];
-      error?: {
-        message?: string;
-      };
-    }
-  | Array<{
-      results?: GoogleAdsRow[];
-      error?: {
-        message?: string;
-      };
-    }>;
 
 function buildRangeFilter(dateRange: string): string {
   const normalized = dateRange.toLowerCase().replace(/\s+/g, "_");
@@ -166,77 +136,12 @@ export async function GET(request: NextRequest) {
   try {
     // Get access token (uses per-agency token if stored, or global fallback)
     const accessToken = await getGoogleAdsAccessToken({ agencyId: agency?.id });
-    const googleAdsQueryRange = buildRangeFilter(dateRange);
-    const apiVersion = process.env.GOOGLE_ADS_API_VERSION || "v18";
-
-    const requestHeaders: Record<string, string> = {
-      Authorization: `Bearer ${accessToken}`,
-      "developer-token": process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? "",
-      "Content-Type": "application/json",
-    };
-
-    // If manager ID is present, pass login-customer-id header
-    if (managerCustomerId) {
-      requestHeaders["login-customer-id"] = managerCustomerId;
-    }
-
-    const response = await fetch(
-      `https://googleads.googleapis.com/${apiVersion}/customers/${customerId}/googleAds:searchStream`,
-      {
-        method: "POST",
-        headers: requestHeaders,
-        body: JSON.stringify({
-          query: `
-            SELECT
-              segments.date,
-              campaign.id,
-              campaign.name,
-              campaign.status,
-              metrics.impressions,
-              metrics.clicks,
-              metrics.cost_micros,
-              metrics.conversions,
-              metrics.conversions_value,
-              metrics.ctr,
-              metrics.average_cpc,
-              metrics.average_cpm
-            FROM campaign
-            WHERE segments.date DURING ${googleAdsQueryRange}
-            ORDER BY segments.date ASC
-          `,
-        }),
-      }
-    );
-
-    const responseText = await response.text();
-    let payload: GoogleAdsPayload | null = null;
-
-    try {
-      payload = responseText ? (JSON.parse(responseText) as GoogleAdsPayload) : null;
-    } catch {
-      payload = null;
-    }
-
-    if (!response.ok) {
-      console.warn("[api/google-ads] Google API error status:", response.status, responseText.slice(0, 500));
-      return NextResponse.json({
-        status: "error",
-        message: "Google Ads account unavailable or permission denied.",
-        metrics: { impressions: 0, clicks: 0, cost: 0, conversions: 0, ctr: 0, averageCpc: 0, costPerConversion: 0, conversionRate: 0, roas: 0 },
-        trend: [],
-        campaigns: [],
-        isLive: false,
-        _debug: debugMode ? { googleStatus: response.status, errorSnippet: responseText.slice(0, 500) } : undefined,
-      }, { status: 200 });
-    }
-
-    // Correctly extract rows whether Google returns stream batch array or single results object
-    let rows: GoogleAdsRow[] = [];
-    if (Array.isArray(payload)) {
-      rows = payload.flatMap((chunk) => chunk.results ?? []);
-    } else if (payload && Array.isArray(payload.results)) {
-      rows = payload.results;
-    }
+    const rows: GoogleAdsRow[] = await fetchGoogleAdsMetrics({
+      clientCustomerId: customerId,
+      managerCustomerId,
+      dateRange: buildRangeFilter(dateRange),
+      accessToken,
+    });
 
     const summary = summarizeGoogleAdsRows(rows);
 

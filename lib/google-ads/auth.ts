@@ -1,23 +1,18 @@
 import { supabaseAdmin } from "../supabase-admin.ts";
+import {
+  formatGoogleAdsCustomerId,
+  normalizeGoogleAdsCustomerId,
+} from "./format.ts";
 
 export type GoogleAdsRole = "master_admin" | "agency_admin" | "client";
 
-export function normalizeGoogleAdsCustomerId(value?: string | null): string {
-  if (!value) {
-    return "";
-  }
-
-  return value.replace(/[^\d]/g, "");
-}
-
-export function sanitizeAgencySlug(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-}
+/**
+ * Every Google Ads call goes through this one version. Google sunsets old
+ * versions (v18 and below now return 404), so it must never be duplicated
+ * per call site: the copies drift and the stale one silently breaks.
+ */
+export const GOOGLE_ADS_API_VERSION =
+  process.env.GOOGLE_ADS_API_VERSION || "v25";
 
 export async function getGoogleAdsAccessToken(options?: {
   agencyId?: string;
@@ -76,6 +71,17 @@ export async function getGoogleAdsAccessToken(options?: {
   };
 
   if (!response.ok || !tokenData.access_token) {
+    // Google rejects a revoked or expired refresh token with invalid_grant.
+    // Record that on the agency, otherwise the dashboard keeps claiming the
+    // connection is healthy while every request fails and nothing prompts the
+    // agency to reconnect.
+    if (options?.agencyId && tokenData.error === "invalid_grant") {
+      await supabaseAdmin
+        .from("agencies")
+        .update({ google_ads_connection_status: "expired" })
+        .eq("id", options.agencyId);
+    }
+
     throw new Error(
       tokenData.error_description ??
         tokenData.error ??
@@ -83,28 +89,17 @@ export async function getGoogleAdsAccessToken(options?: {
     );
   }
 
+  // A previously expired connection that works again should stop nagging.
+  if (options?.agencyId) {
+    await supabaseAdmin
+      .from("agencies")
+      .update({ google_ads_connection_status: "connected" })
+      .eq("id", options.agencyId)
+      .eq("google_ads_connection_status", "expired");
+  }
+
   return tokenData.access_token;
 }
-
-export function formatGoogleAdsCustomerId(value?: string | null): string {
-  const digits = normalizeGoogleAdsCustomerId(value);
-  if (digits.length === 10) {
-    return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
-  }
-  return digits || "N/A";
-}
-
-export type GoogleAdsManagedAccount = {
-  customerId: string;
-  formattedCustomerId?: string;
-  name: string;
-  status: string;
-  hidden?: boolean;
-  manager?: boolean;
-  testAccount?: boolean;
-  currencyCode?: string | null;
-  timeZone?: string | null;
-};
 
 export type FullGoogleAdsAccount = {
   customerId: string;
@@ -119,123 +114,35 @@ export type FullGoogleAdsAccount = {
   managerCustomerId?: string | null;
 };
 
-export type GoogleAdsMetricsResult = {
-  results?: Array<{
-    campaign?: {
-      id?: string;
-      name?: string;
-      status?: string;
-    };
-    metrics?: {
-      impressions?: number | string;
-      clicks?: number | string;
-      cost_micros?: number | string;
-      conversions?: number | string;
-      conversions_value?: number | string;
-      ctr?: number | string;
-      average_cpc?: number | string;
-      average_cpm?: number | string;
-    };
-    segments?: {
-      date?: string;
-    };
-  }>;
-  error?: {
-    message?: string;
+/** One row of a Google Ads campaign report. */
+export type GoogleAdsRow = {
+  campaign?: {
+    id?: string | number;
+    name?: string;
+    status?: string;
+  };
+  metrics?: {
+    impressions?: number | string;
+    clicks?: number | string;
+    cost_micros?: number | string;
+    conversions?: number | string;
+    conversions_value?: number | string;
+    ctr?: number | string;
+    average_cpc?: number | string;
+    average_cpm?: number | string;
+  };
+  segments?: {
+    date?: string;
   };
 };
 
-export async function fetchGoogleAdsManagedAccounts({
-  managerCustomerId,
-  accessToken,
-}: {
-  managerCustomerId: string;
-  accessToken: string;
-}): Promise<GoogleAdsManagedAccount[]> {
-  const cleanedManagerId = normalizeGoogleAdsCustomerId(managerCustomerId);
+/** googleAds:search returns one object; googleAds:searchStream an array of chunks. */
+type GoogleAdsSearchChunk = {
+  results?: GoogleAdsRow[];
+  error?: { message?: string };
+};
 
-  if (!cleanedManagerId) {
-    throw new Error("Google Ads manager customer ID is required.");
-  }
-
-  const apiVersion = process.env.GOOGLE_ADS_API_VERSION || "v18";
-  const response = await fetch(
-    `https://googleads.googleapis.com/${apiVersion}/customers/${cleanedManagerId}/googleAds:search`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "developer-token": process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? "",
-        "login-customer-id": cleanedManagerId,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        query: `
-          SELECT
-            customer_client.client_customer,
-            customer_client.id,
-            customer_client.descriptive_name,
-            customer_client.status,
-            customer_client.hidden,
-            customer_client.manager,
-            customer_client.test_account,
-            customer_client.currency_code,
-            customer_client.time_zone
-          FROM customer_client
-        `,
-      }),
-    }
-  );
-
-  const responseText = await response.text();
-  type GoogleAdsCustomerClientSearchPayload = {
-    results?: Array<{ customerClient?: Record<string, unknown> } | Record<string, unknown>>;
-    error?: { message?: string };
-  };
-
-  let payload: GoogleAdsCustomerClientSearchPayload | null = null;
-
-  try {
-    payload = responseText ? (JSON.parse(responseText) as GoogleAdsCustomerClientSearchPayload) : null;
-  } catch {
-    payload = null;
-  }
-
-  if (!response.ok) {
-    const message =
-      payload?.error?.message ??
-      (responseText || "Google Ads account listing request failed.");
-    throw new Error(message);
-  }
-
-  const results: Array<{ customerClient?: Record<string, unknown> } | Record<string, unknown>> = Array.isArray(payload?.results)
-    ? payload.results
-    : [];
-
-  return results
-    .map((entry) => {
-      if (entry && typeof entry === "object" && "customerClient" in entry && entry.customerClient) {
-        return entry.customerClient as Record<string, unknown>;
-      }
-      return entry as Record<string, unknown>;
-    })
-    .filter((client): client is Record<string, unknown> => !!client)
-    .map((client) => {
-      const rawId = String(client.id ?? client.customerId ?? client.customer_id ?? "");
-      return {
-        customerId: rawId,
-        formattedCustomerId: formatGoogleAdsCustomerId(rawId),
-        name: String(client.descriptiveName ?? client.descriptive_name ?? `Account ${formatGoogleAdsCustomerId(rawId)}`),
-        status: String(client.status ?? "ENABLED"),
-        hidden: Boolean(client.hidden),
-        manager: Boolean(client.manager),
-        testAccount: Boolean(client.testAccount ?? client.test_account),
-        currencyCode: (client.currencyCode ?? client.currency_code) as string | null | undefined,
-        timeZone: (client.timeZone ?? client.time_zone) as string | null | undefined,
-      };
-    })
-    .filter((account) => Boolean(account.customerId));
-}
+type GoogleAdsSearchPayload = GoogleAdsSearchChunk | GoogleAdsSearchChunk[];
 
 export async function fetchAllGoogleAdsAccounts({
   accessToken,
@@ -245,7 +152,6 @@ export async function fetchAllGoogleAdsAccounts({
   managerCustomerId?: string | null;
 }): Promise<FullGoogleAdsAccount[]> {
   const accountMap = new Map<string, FullGoogleAdsAccount>();
-  const apiVersion = process.env.GOOGLE_ADS_API_VERSION || "v25";
   const devToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? "";
 
   // 1. Fetch all root accessible customers
@@ -269,7 +175,7 @@ export async function fetchAllGoogleAdsAccounts({
     // Query customer_client hierarchy via searchStream (fetches all root + child accounts: active, canceled, closed, hidden, managers)
     try {
       const hierResp = await fetch(
-        `https://googleads.googleapis.com/${apiVersion}/customers/${cleanId}/googleAds:searchStream`,
+        `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${cleanId}/googleAds:searchStream`,
         {
           method: "POST",
           headers: {
@@ -353,6 +259,12 @@ export async function fetchAllGoogleAdsAccounts({
   return Array.from(accountMap.values());
 }
 
+/**
+ * Fetch campaign metrics for one client account.
+ *
+ * `managerCustomerId` is optional: an agency that has not recorded its MCC id
+ * can still read an account the connected Google user owns directly.
+ */
 export async function fetchGoogleAdsMetrics({
   clientCustomerId,
   managerCustomerId,
@@ -360,19 +272,17 @@ export async function fetchGoogleAdsMetrics({
   accessToken,
 }: {
   clientCustomerId: string;
-  managerCustomerId: string;
+  managerCustomerId?: string | null;
   dateRange: string;
   accessToken: string;
-}): Promise<GoogleAdsMetricsResult> {
+}): Promise<GoogleAdsRow[]> {
   const cleanedCustomerId = normalizeGoogleAdsCustomerId(clientCustomerId);
   const cleanedManagerId = normalizeGoogleAdsCustomerId(managerCustomerId);
 
-  if (!cleanedCustomerId || !cleanedManagerId) {
-    throw new Error("Google Ads customer and manager IDs are required.");
+  if (!cleanedCustomerId) {
+    throw new Error("Google Ads customer ID is required.");
   }
-
-  const apiVersion = process.env.GOOGLE_ADS_API_VERSION || "v25";
-  const url = `https://googleads.googleapis.com/${apiVersion}/customers/${cleanedCustomerId}/googleAds:searchStream`;
+  const url = `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${cleanedCustomerId}/googleAds:searchStream`;
   const query = `
     SELECT
       segments.date,
@@ -392,34 +302,47 @@ export async function fetchGoogleAdsMetrics({
     ORDER BY segments.date ASC
   `;
 
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${accessToken}`,
+    "developer-token": process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? "",
+    "Content-Type": "application/json",
+  };
+
+  if (cleanedManagerId) {
+    headers["login-customer-id"] = cleanedManagerId;
+  }
+
   const response = await fetch(url, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "developer-token": process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? "",
-      "login-customer-id": cleanedManagerId,
-      "Content-Type": "application/json",
-    },
+    headers,
     body: JSON.stringify({ query }),
   });
 
   const rawText = await response.text();
-  let payload: GoogleAdsMetricsResult | null = null;
+  let payload: GoogleAdsSearchPayload | null = null;
 
   try {
-    payload = rawText ? (JSON.parse(rawText) as GoogleAdsMetricsResult) : null;
+    payload = rawText ? (JSON.parse(rawText) as GoogleAdsSearchPayload) : null;
   } catch {
     payload = null;
   }
 
   if (!response.ok) {
+    const message = Array.isArray(payload)
+      ? payload[0]?.error?.message
+      : payload?.error?.message;
+
     throw new Error(
-      payload?.error?.message ??
-        "Google Ads API request failed while loading metrics."
+      message ?? `Google Ads API request failed (${response.status}).`
     );
   }
 
-  return payload ?? { results: [] };
+  // searchStream replies with an array of chunks; search replies with one object.
+  if (Array.isArray(payload)) {
+    return payload.flatMap((chunk) => chunk.results ?? []);
+  }
+
+  return payload?.results ?? [];
 }
 
 export async function fetchAccessibleGoogleAdsCustomers({
@@ -427,9 +350,8 @@ export async function fetchAccessibleGoogleAdsCustomers({
 }: {
   accessToken: string;
 }): Promise<string[]> {
-  const apiVersion = process.env.GOOGLE_ADS_API_VERSION || "v25";
   const response = await fetch(
-    `https://googleads.googleapis.com/${apiVersion}/customers:listAccessibleCustomers`,
+    `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers:listAccessibleCustomers`,
     {
       method: "GET",
       headers: {

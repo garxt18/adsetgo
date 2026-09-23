@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { requireApiAuth, requireAgencyAccess } from "@/lib/api-auth";
+import { createInvite, resolveAppOrigin } from "@/lib/invites";
 import { NextResponse } from "next/server";
 
 export async function GET(
@@ -115,7 +116,39 @@ export async function POST(
       );
     }
 
-    return NextResponse.json(newClient);
+    if (!newClient) {
+      return NextResponse.json(
+        { error: "Failed to create client" },
+        { status: 500 }
+      );
+    }
+
+    const invite = await createInvite({
+      email,
+      role: "client",
+      agencyId: agencyData.id,
+      clientId: newClient.id,
+      origin: resolveAppOrigin(request),
+    });
+
+    if (!invite.ok) {
+      return NextResponse.json(
+        { ...newClient, inviteLink: null, inviteError: invite.error },
+        { status: 201 }
+      );
+    }
+
+    // Bind the login to this client record here, so accepting the invite never
+    // has to be trusted to say which client it belongs to.
+    await supabaseAdmin
+      .from("clients")
+      .update({ auth_user_id: invite.userId })
+      .eq("id", newClient.id);
+
+    return NextResponse.json(
+      { ...newClient, auth_user_id: invite.userId, inviteLink: invite.inviteLink },
+      { status: 201 }
+    );
   } catch (error) {
     console.error("Error creating client:", error);
     return NextResponse.json(

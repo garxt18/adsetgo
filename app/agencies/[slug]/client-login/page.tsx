@@ -27,20 +27,21 @@ export default function ClientLoginPage() {
   useEffect(() => {
     async function loadAgency() {
       setLoadingAgency(true);
-      const { data: agencyData, error: agencyError } = await supabase
-        .from("agencies")
-        .select("id, name, slug")
-        .eq("slug", slug)
-        .maybeSingle();
+      try {
+        const res = await fetch(`/api/public/agencies/${slug}`);
 
-      if (agencyError || !agencyData) {
+        if (!res.ok) {
+          setError("Agency not found");
+          return;
+        }
+
+        setAgency((await res.json()) as AgencyData);
+      } catch (err) {
+        console.error("Error loading agency:", err);
         setError("Agency not found");
+      } finally {
         setLoadingAgency(false);
-        return;
       }
-
-      setAgency(agencyData as AgencyData);
-      setLoadingAgency(false);
     }
 
     if (slug) {

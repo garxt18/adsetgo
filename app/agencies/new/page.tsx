@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-import { sanitizeAgencySlug } from "../../../lib/google-ads/auth";
+import { sanitizeAgencySlug } from "../../../lib/google-ads/format";
 import { supabase } from "../../../lib/supabase";
 
 export default function NewAgencyPage() {
@@ -19,6 +19,7 @@ export default function NewAgencyPage() {
     id: string;
     slug: string;
     name: string;
+    inviteLink: string | null;
   } | null>(null);
   const [debugSession, setDebugSession] = useState<unknown>(null);
   const [lsSnapshot, setLsSnapshot] = useState<Record<string, string>>({});
@@ -43,6 +44,7 @@ export default function NewAgencyPage() {
           name: agencyName,
           slug: finalSlug,
           google_ads_manager_customer_id: mccId || null,
+          ownerEmail,
         }),
       });
 
@@ -54,10 +56,19 @@ export default function NewAgencyPage() {
       }
 
       const newAgency = await res.json();
+
+      if (!newAgency.inviteLink) {
+        alert(
+          "Agency created, but the owner invitation could not be generated: " +
+            (newAgency.inviteError ?? "unknown error")
+        );
+      }
+
       setCreatedAgency({
         id: newAgency.id,
         slug: newAgency.slug,
         name: newAgency.name,
+        inviteLink: newAgency.inviteLink ?? null,
       });
     } catch (err) {
       console.error("Failed to create agency:", err);
@@ -149,23 +160,22 @@ export default function NewAgencyPage() {
               </div>
 
               <div>
-                <h2 className="text-lg font-semibold text-slate-900">Share Admin Signup Link</h2>
+                <h2 className="text-lg font-semibold text-slate-900">Share Admin Invitation</h2>
                 <p className="mt-2 text-sm text-slate-600">
-                  Send this link to {ownerEmail} so they can create their admin account:
+                  Send this single-use link to {ownerEmail}. Only that address can
+                  use it, and it works once:
                 </p>
                 <div className="mt-4 flex gap-2">
                   <input
                     type="text"
                     readOnly
-                    value={`${origin}/agencies/${createdAgency.slug}/login`}
+                    value={createdAgency.inviteLink ?? "Invitation could not be generated"}
                     className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700"
                   />
                   <button
                     type="button"
                     onClick={() => {
-                      navigator.clipboard.writeText(
-                        `${origin}/agencies/${createdAgency.slug}/login`
-                      );
+                      navigator.clipboard.writeText(createdAgency.inviteLink ?? "");
                       alert("Link copied to clipboard!");
                     }}
                     className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-700"
@@ -174,7 +184,8 @@ export default function NewAgencyPage() {
                   </button>
                 </div>
                 <p className="mt-2 text-xs text-slate-500">
-                  The agency owner can use this link to sign up or log in.
+                  After setting a password they sign in at {origin}/agencies/
+                  {createdAgency.slug}/login
                 </p>
               </div>
 

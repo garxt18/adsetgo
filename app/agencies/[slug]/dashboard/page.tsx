@@ -190,10 +190,17 @@ export default function AgencyDashboard() {
 
     const newClient = await response.json();
 
-    // Show the URL in a modal
-    const url = `${window.location.origin}/agencies/${slug}/client-signup/${newClient.id}`;
-    setInvitationUrl(url);
-    setShowInvitationModal(true);
+    // The API creates the account and returns a single-use link for this exact
+    // address; it cannot be rebuilt from the client id, which is the point.
+    if (newClient.inviteLink) {
+      setInvitationUrl(newClient.inviteLink);
+      setShowInvitationModal(true);
+    } else {
+      alert(
+        "Client saved, but the invitation could not be created: " +
+          (newClient.inviteError ?? "unknown error")
+      );
+    }
 
     setInviteEmail("");
     setInviteName("");
@@ -428,6 +435,33 @@ export default function AgencyDashboard() {
           ))}
         </div>
 
+        {agency.google_ads_connection_status === "expired" && (
+          <div className="mt-8 rounded-2xl border border-amber-200 bg-amber-50 p-6 shadow-sm">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.2em] text-amber-700">
+                  Google Ads
+                </p>
+                <h2 className="mt-2 text-xl font-bold text-amber-900">
+                  Connection expired
+                </h2>
+                <p className="mt-1 text-sm text-amber-800">
+                  Google no longer accepts this connection, so campaign data cannot
+                  load. Reconnect to restore it.
+                </p>
+              </div>
+              <button
+                onClick={() =>
+                  window.open(`/api/google-ads/auth?agencyId=${agency.id}`, "_blank")
+                }
+                className="inline-flex shrink-0 items-center justify-center rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700"
+              >
+                Reconnect Google Ads
+              </button>
+            </div>
+          </div>
+        )}
+
         {agency.google_ads_connection_status === "connected" && (
           <div className="mt-8 rounded-2xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
             <div className="flex items-center justify-between gap-4">
@@ -563,13 +597,11 @@ export default function AgencyDashboard() {
                       <td className="px-6 py-4 text-sm">
                         <div className="flex gap-2">
                           <button
-                            onClick={() => {
-                              const url =
-                                client.status === "invited"
-                                  ? `${window.location.origin}/agencies/${slug}/client-signup/${client.id}`
-                                  : `${window.location.origin}/agencies/${slug}/clients/${client.id}`;
-                              copyToClipboard(url);
-                            }}
+                            onClick={() =>
+                              copyToClipboard(
+                                `${window.location.origin}/agencies/${slug}/clients/${client.id}`
+                              )
+                            }
                             className="rounded-lg bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-200"
                           >
                             Copy Link

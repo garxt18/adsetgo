@@ -1,0 +1,98 @@
+import { supabaseAdmin } from "./supabase-admin.ts";
+
+/**
+ * Invitations for agency admins and clients.
+ *
+ * Accounts are never self-served: the app creates the account and hands back a
+ * single-use link for the intended address. The alternative -- a public signup
+ * endpoint keyed on the agency id and slug -- let anyone who read those public
+ * values register themselves as an agency's admin, or bind their own login to
+ * an existing client record.
+ *
+ * Supabase issues and expires the invite token, so no token is stored here.
+ */
+
+export type InviteRole = "agency_admin" | "client";
+
+export type InviteResult =
+  | { ok: true; inviteLink: string; userId: string }
+  | { ok: false; error: string; status: number };
+
+/**
+ * The origin to send the invited person back to. Taken from the request so the
+ * link works on localhost, a preview deployment and production alike.
+ */
+export function resolveAppOrigin(request: Request): string {
+  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (configured) {
+    return configured.replace(/\/$/, "");
+  }
+
+  const headers = request.headers;
+  const host = headers.get("x-forwarded-host") ?? headers.get("host");
+  const proto =
+    headers.get("x-forwarded-proto") ??
+    (host?.startsWith("localhost") || host?.startsWith("127.") ? "http" : "https");
+
+  if (host) {
+    return `${proto}://${host.replace(/^0\.0\.0\.0/, "localhost")}`;
+  }
+
+  return new URL(request.url).origin;
+}
+
+/**
+ * Create the account for `email` and return a single-use link that lets exactly
+ * that address set a password. The profile carries the role, so an invited
+ * person cannot choose what they become.
+ */
+export async function createInvite({
+  email,
+  role,
+  agencyId,
+  clientId,
+  origin,
+}: {
+  email: string;
+  role: InviteRole;
+  agencyId: string;
+  clientId?: string;
+  origin: string;
+}): Promise<InviteResult> {
+  const { data, error } = await supabaseAdmin.auth.admin.generateLink({
+    type: "invite",
+    email,
+    options: { redirectTo: `${origin}/invite/accept` },
+  });
+
+  if (error || !data?.user || !data.properties?.action_link) {
+    const message = error?.message ?? "Could not create the invitation.";
+
+    // An address that already has a login is the common case here, and it must
+    // not silently attach a second role to that person.
+    const status = /already|exists|registered/i.test(message) ? 409 : 500;
+
+    return { ok: false, error: message, status };
+  }
+
+  const { error: profileError } = await supabaseAdmin.from("profiles").insert({
+    id: data.user.id,
+    email,
+    role,
+    agency_id: agencyId,
+    client_id: clientId ?? null,
+  });
+
+  if (profileError) {
+    // Without a profile the account has no role, so leave nothing behind.
+    await supabaseAdmin.auth.admin.deleteUser(data.user.id);
+
+    return { ok: false, error: profileError.message, status: 500 };
+  }
+
+  return {
+    ok: true,
+    inviteLink: data.properties.action_link,
+    userId: data.user.id,
+  };
+}
