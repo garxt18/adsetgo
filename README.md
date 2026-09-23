@@ -104,3 +104,10 @@ lib/
   `google_ads_refresh_token`, a standing credential for the agency's ads.
 - **Nothing that imports `lib/supabase-admin.ts` may be imported by a client
   component.** Pure helpers belong in `lib/google-ads/format.ts`.
+- **`DEV_ADMIN_*` and `NEXT_PUBLIC_DEV_ADMIN_*` never accompany a deployment.**
+  They configure the local login shortcut in `app/login/page.tsx`, and the
+  `NEXT_PUBLIC_` half is readable by the browser. A build on Vercel or CI that
+  carries them fails deliberately (`lib/dev-only-env.ts`).
+- **In production there is no login shortcut.** The master admin's Supabase
+  password is the only way in, so it must be a strong one; the local
+  development value is not a credential to reuse.
