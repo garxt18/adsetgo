@@ -3,7 +3,9 @@
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase/browser";
+import { AuthShell, Field, ForgotLink, FormError } from "@/components/ui/auth-shell";
+import { Button } from "@/components/ui/button";
 
 type AgencyData = {
   id: string;
@@ -96,86 +98,54 @@ export default function ClientLoginPage() {
 
   if (loadingAgency) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-100 p-6">
-        <div className="text-center">
-          <p className="text-slate-600">Loading...</p>
-        </div>
+      <main className="flex min-h-screen items-center justify-center bg-canvas">
+        <p className="text-sm text-ink-soft">Loading…</p>
       </main>
     );
   }
 
   if (!agency) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-100 p-6">
-        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-          <p className="text-center text-sm text-red-600">Agency not found</p>
-        </div>
-      </main>
+      <AuthShell eyebrow="Client portal" title="Workspace not found">
+        <p className="text-sm text-ink-soft">
+          Check the link your agency sent you, or ask them to send it again.
+        </p>
+      </AuthShell>
     );
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-100 p-6">
-      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-        <p className="text-center text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
-          Client Portal
-        </p>
-        <h1 className="mt-3 text-center text-2xl font-bold text-slate-900">
-          {agency.name}
-        </h1>
-        <p className="mt-2 text-center text-sm text-slate-600">
-          Sign in to your account
-        </p>
+    <AuthShell
+      eyebrow="Client portal"
+      title={agency.name}
+      subtitle="Sign in to see how your campaigns are performing."
+      footer={`Accounts are created by invitation. Check your email for a link from ${agency.name}.`}
+    >
+      <FormError message={error} />
 
-        {error ? (
-          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            {error}
-          </div>
-        ) : null}
+      <form onSubmit={handleLogin} className="space-y-4">
+        <Field
+          label="Email"
+          type="email"
+          value={email}
+          onChange={setEmail}
+          autoComplete="email"
+          placeholder="you@company.com"
+        />
+        <Field
+          label="Password"
+          type="password"
+          value={password}
+          onChange={setPassword}
+          autoComplete="current-password"
+          placeholder="••••••••"
+        />
+        <Button type="submit" disabled={loading} className="w-full">
+          {loading ? "Signing in…" : "Sign in"}
+        </Button>
+      </form>
 
-        <form onSubmit={handleLogin} className="mt-8 space-y-4">
-          <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">Email</label>
-            <input
-              type="email"
-              required
-              placeholder="your@email.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none transition focus:border-slate-500"
-            />
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">Password</label>
-            <input
-              type="password"
-              required
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none transition focus:border-slate-500"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {loading ? "Signing in..." : "Sign In"}
-          </button>
-        </form>
-
-        <div className="mt-4 text-center text-sm text-slate-600">
-          <p>
-            Dont have an account?{" "}
-            <span className="text-slate-700">
-              Check your email for an invitation from {agency.name}
-            </span>
-          </p>
-        </div>
-      </div>
-    </main>
+      <ForgotLink returnTo={`/agencies/${slug}/client-login`} />
+    </AuthShell>
   );
 }

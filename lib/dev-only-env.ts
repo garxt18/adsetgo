@@ -1,6 +1,7 @@
 /**
- * Environment variables that configure the local login shortcut in
- * `app/login/page.tsx` and must never accompany a deployment.
+ * Environment variables that belong to local development only and must never
+ * accompany a deployment: the login shortcut in `app/login/page.tsx`, and the
+ * switch that serves generated report figures instead of Google Ads data.
  *
  * Their `NEXT_PUBLIC_` half is readable by the browser. Today they survive a
  * production build only because the bundler drops the branch guarded by
@@ -12,6 +13,8 @@ export const DEV_ONLY_VARS = [
   "DEV_ADMIN_PASSWORD",
   "NEXT_PUBLIC_DEV_ADMIN_EMAIL",
   "NEXT_PUBLIC_DEV_ADMIN_PASSWORD",
+  // Serves generated report figures in place of Google Ads data.
+  "SAMPLE_DATA",
 ] as const;
 
 /** True for a build that produces a deployable artifact rather than a local one. */

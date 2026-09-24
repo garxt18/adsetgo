@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 
-import { getSupabaseConfig } from "./supabase-env.ts";
+import { getSupabaseConfig } from "./env.ts";
 
 const { url: supabaseUrl, key: supabaseServiceKey } =
   getSupabaseConfig("admin");

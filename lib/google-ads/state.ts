@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-import { getSupabaseConfig } from "../supabase-env.ts";
+import { getSupabaseConfig } from "../supabase/env.ts";
 
 /**
  * Signed `state` for the Google Ads OAuth round trip.

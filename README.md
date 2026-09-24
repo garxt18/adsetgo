@@ -1,4 +1,6 @@
-# Google Ads Agency Platform
+# AdSetGo
+
+Google Ads reporting for agencies and their clients.
 
 A multi-tenant dashboard where a platform owner onboards agencies, each agency
 connects its own Google Ads manager account (MCC), and each of its clients sees
@@ -41,6 +43,41 @@ own, so `state` is the only thing tying a code to an agency.
 If Google later rejects the stored token, the agency is marked `expired` and the
 dashboard shows a reconnect prompt rather than claiming to be connected.
 
+## Password reset
+
+There are two ways back in for someone who forgot their password.
+
+- **Self-service.** Every sign-in page links to `/forgot-password`. Supabase
+  emails a link that lands on `/reset-password`. The confirmation reads the
+  same whether or not the address has an account, so the form cannot be used
+  to find out who is on the platform.
+- **Issued by whoever manages the account.** An agency can create a reset link
+  for any of its clients from the client's page, and the platform admin can do
+  the same for an agency's owner from the agencies table. The link is shown to
+  copy and send directly, so it does not depend on email delivery. Every issue
+  is written to `audit_logs`, because holding the link means being able to set
+  that person's password.
+
+Invitations and resets share one screen (`components/set-password.tsx`), and
+after either one the server decides where the person belongs
+(`/api/auth/home`). A client cannot read the `agencies` table, so working that
+out in the browser used to send clients back to the sign-in page.
+
+**Supabase settings this depends on** (Authentication, in the Supabase
+dashboard):
+
+1. **URL Configuration → Redirect URLs** must include
+   `http://localhost:3001/reset-password` and the production equivalent.
+   Without it Supabase silently sends people to the Site URL instead.
+2. **SMTP.** The built-in mailer allows only a few emails an hour and, without
+   custom SMTP, may not deliver to addresses outside the project team. Set up
+   a provider (Resend, Postmark, SES) before relying on self-service reset.
+3. **Optional, recommended: Reset Password email template.** Supabase's default
+   link can only be completed in the browser that requested it. Changing the
+   link to
+   `{{ .SiteURL }}/reset-password?token_hash={{ .TokenHash }}&type=recovery`
+   makes it work on any device; `/reset-password` accepts both forms.
+
 ## Google Ads API notes
 
 - The API version lives in exactly one place, `GOOGLE_ADS_API_VERSION` in
@@ -48,7 +85,9 @@ dashboard shows a reconnect prompt rather than claiming to be connected.
   duplicated copies drift apart.
 - A developer token at **Explorer** access allows production accounts but caps
   usage at **2,880 operations per day**, shared across every agency on the
-  platform. There is no caching yet, so this is the first limit you will hit.
+  platform. Reports and the account tree are cached for five minutes
+  (`lib/google-ads/report-cache.ts`), but a large agency list is still the first
+  limit you will hit.
 
 ## Local setup
 
@@ -86,14 +125,29 @@ app/
   api/google-ads/         OAuth, account tree, metrics, campaign controls
   api/dev/                local bootstrap helpers, disabled in production
   invite/accept/          where an invitation link lands
+  forgot-password/        self-service reset request
+  reset-password/         where a reset link lands (shares the invite screen)
+  api/auth/home/          where the signed-in person belongs
 lib/
   api-auth.ts             requireApiAuth / requireAgencyAccess
-  invites.ts              invitation creation
-  google-ads/state.ts     signed OAuth state
+  invites.ts              invitations and admin-issued reset links
+  audit.ts                writes sensitive actions to audit_logs
+  home-path.ts            asks the server where a signed-in person goes
+  safe-return.ts          keeps back links on this site
+  dev-only-env.ts         refuses deployments carrying dev-login variables
+  google-ads/auth.ts      tokens, account tree and metrics queries
   google-ads/format.ts    pure helpers, safe for browser bundles
-  google-ads/auth.ts      tokens and Google Ads queries
-  supabase*.ts            browser, server and service-role clients
+  google-ads/state.ts     signed OAuth state
+  supabase/browser.ts     cookie-backed client for pages
+  supabase/server.ts      request-scoped client, resolves the caller
+  supabase/admin.ts       service-role client, server only
+  supabase/env.ts         required configuration, fails fast
 ```
+
+Code under `app/` imports these through the `@/` alias (`@/lib/supabase/browser`).
+Modules inside `lib/` import each other relatively and with a `.ts` extension,
+because `npm test` runs those files directly through Node, which resolves
+neither the alias nor extensionless paths.
 
 ## Security rules that must not be relaxed
 
@@ -102,12 +156,22 @@ lib/
   protection to inherit.
 - **Never select `*` from `agencies` into a response.** That table holds
   `google_ads_refresh_token`, a standing credential for the agency's ads.
-- **Nothing that imports `lib/supabase-admin.ts` may be imported by a client
+- **Nothing that imports `lib/supabase/admin.ts` may be imported by a client
   component.** Pure helpers belong in `lib/google-ads/format.ts`.
 - **`DEV_ADMIN_*` and `NEXT_PUBLIC_DEV_ADMIN_*` never accompany a deployment.**
   They configure the local login shortcut in `app/login/page.tsx`, and the
   `NEXT_PUBLIC_` half is readable by the browser. A build on Vercel or CI that
   carries them fails deliberately (`lib/dev-only-env.ts`).
+- **The browser Supabase client must stay `createBrowserClient` from
+  `@supabase/ssr`.** The plain `createClient` keeps the session in
+  localStorage, which the server cannot read, so people sign in successfully
+  and are bounced straight back to the login page with no error.
+- **Pages read roles, they never write them.** Roles are set when an invitation
+  is created. A page that upserts its own profile can demote an agency admin,
+  or hand itself `master_admin`.
+- **Back links only ever point at this site.** Sign-in pages pass a `from`
+  path around; it goes through `lib/safe-return.ts`, which rejects anything a
+  browser would read as another website (`//x`, `/\x`, full URLs).
 - **In production there is no login shortcut.** The master admin's Supabase
   password is the only way in, so it must be a strong one; the local
   development value is not a credential to reuse.

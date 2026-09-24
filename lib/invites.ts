@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "./supabase-admin.ts";
+import { supabaseAdmin } from "./supabase/admin.ts";
 
 /**
  * Invitations for agency admins and clients.
@@ -65,7 +65,7 @@ export async function createInvite({
     options: { redirectTo: `${origin}/invite/accept` },
   });
 
-  if (error || !data?.user || !data.properties?.action_link) {
+  if (error || !data?.user || !data.properties?.hashed_token) {
     const message = error?.message ?? "Could not create the invitation.";
 
     // An address that already has a login is the common case here, and it must
@@ -90,9 +90,57 @@ export async function createInvite({
     return { ok: false, error: profileError.message, status: 500 };
   }
 
-  return {
-    ok: true,
-    inviteLink: data.properties.action_link,
-    userId: data.user.id,
-  };
+  // Supabase's own action_link hands the session back in the URL fragment
+  // (implicit flow), which the PKCE browser client never reads -- the invited
+  // person would be told their link was invalid. Pointing at our own page with
+  // the token hash lets it complete the sign-in through verifyOtp instead.
+  const inviteLink = `${origin}/invite/accept?token_hash=${encodeURIComponent(
+    data.properties.hashed_token
+  )}&type=invite`;
+
+  return { ok: true, inviteLink, userId: data.user.id };
+}
+
+/**
+ * A single-use link that lets an existing account choose a new password.
+ *
+ * Issued by whoever manages the account -- an agency for its clients, the
+ * platform admin for agency owners -- and handed over directly, so a person
+ * who forgot their password is not stuck waiting on email delivery. Supabase's
+ * built-in mailer is rate-limited and, without custom SMTP, may not deliver to
+ * arbitrary addresses at all.
+ *
+ * The address is read from the auth account itself, not from the client
+ * record: an agency can edit a client's email in the directory, but that does
+ * not change the address they sign in with.
+ */
+export async function createAccessLink({
+  userId,
+  origin,
+}: {
+  userId: string;
+  origin: string;
+}): Promise<{ ok: true; link: string; email: string } | { ok: false; error: string; status: number }> {
+  const { data: account, error: lookupError } = await supabaseAdmin.auth.admin.getUserById(userId);
+  const email = account?.user?.email;
+
+  if (lookupError || !email) {
+    return { ok: false, error: "This person does not have a sign-in account yet.", status: 404 };
+  }
+
+  const { data, error } = await supabaseAdmin.auth.admin.generateLink({
+    type: "recovery",
+    email,
+    options: { redirectTo: `${origin}/reset-password` },
+  });
+
+  if (error || !data?.properties?.hashed_token) {
+    return { ok: false, error: error?.message ?? "The link could not be created.", status: 500 };
+  }
+
+  const link = `${origin}/reset-password?token_hash=${encodeURIComponent(
+    data.properties.hashed_token
+  )}&type=recovery`;
+
+  return { ok: true, link, email };
 }

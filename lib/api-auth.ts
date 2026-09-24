@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getCurrentProfile, type AppProfile, type AppRole } from "./supabase-server";
+import { getCurrentProfile, type AppProfile, type AppRole } from "./supabase/server.ts";
 
 export type ApiAuthSuccess = { profile: AppProfile; response: null };
 export type ApiAuthFailure = { profile: null; response: NextResponse };

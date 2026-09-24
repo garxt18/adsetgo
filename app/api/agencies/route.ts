@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireApiAuth } from "@/lib/api-auth";
 import { createInvite, resolveAppOrigin } from "@/lib/invites";
 import { NextResponse } from "next/server";
@@ -11,10 +11,12 @@ export async function GET() {
     // Use admin client to bypass RLS and fetch all agencies
     // Never select google_ads_refresh_token here: this list is rendered in a
     // browser, and the token is a standing credential for the agency's ads.
+    // The embedded count lets the dashboard report real client numbers rather
+    // than estimate them.
     const { data, error } = await supabaseAdmin
       .from("agencies")
       .select(
-        "id, name, slug, google_ads_manager_customer_id, google_ads_connection_status, created_at, updated_at"
+        "id, name, slug, google_ads_manager_customer_id, google_ads_connection_status, created_at, updated_at, clients(count), profiles(email, role)"
       )
       .order("created_at", { ascending: false });
 
@@ -25,7 +27,21 @@ export async function GET() {
       );
     }
 
-    return NextResponse.json(data);
+    type AgencyRow = Record<string, unknown> & {
+      clients?: Array<{ count: number }>;
+      profiles?: Array<{ email: string | null; role: string }>;
+    };
+
+    const agencies = ((data ?? []) as AgencyRow[]).map(
+      ({ clients, profiles, ...agency }) => ({
+        ...agency,
+        client_count: clients?.[0]?.count ?? 0,
+        owner_email:
+          profiles?.find((p) => p.role === "agency_admin")?.email ?? null,
+      })
+    );
+
+    return NextResponse.json(agencies);
   } catch (error) {
     console.error("Error fetching agencies:", error);
     return NextResponse.json(

@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireApiAuth, requireAgencyAccess, requireClientAccess } from "@/lib/api-auth";
 import { NextResponse } from "next/server";
 

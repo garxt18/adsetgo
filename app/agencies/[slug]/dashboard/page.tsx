@@ -1,627 +1,442 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 
-import { supabase } from "@/lib/supabase";
+import { signOut } from "@/lib/sign-out";
+import { AgencyShell } from "@/components/agency-shell";
+import { ClientTable, type ClientRow } from "@/components/client-table";
+import { GoogleAdsAccounts } from "@/components/google-ads-accounts";
+import { Sparkline, type Point } from "@/components/charts";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Modal } from "@/components/ui/modal";
+import { Segmented } from "@/components/ui/segmented";
+import { formatCurrency, formatNumber } from "@/lib/format";
 
 type Agency = {
   id: string;
   name: string;
   slug: string;
-  google_ads_connection_status?: string | null;
-  google_ads_manager_customer_id?: string | null;
-  created_at: string;
+  connectionStatus: string | null;
+  managerCustomerId: string | null;
 };
 
-type ManagedGoogleAdsAccount = {
-  customerId: string;
-  name: string;
-  status?: string;
-  currencyCode?: string | null;
+type Totals = {
+  cost: number;
+  clicks: number;
+  conversions: number;
+  impressions: number;
+  costPerConversion: number;
 };
 
-type Client = {
-  id: string;
-  agency_id: string;
-  name: string;
-  email: string;
-  google_ads_customer_id: string;
-  status: string;
-  created_at: string;
+type Period = {
+  label: string;
+  start: string;
+  end: string;
+  previousStart: string;
+  previousEnd: string;
 };
 
-type UserProfile = {
-  id: string;
-  email: string;
-  role: string;
-  agency_id: string;
-};
+const DATE_RANGES = [
+  { value: "last_7_days", label: "7 days", short: "7D" },
+  { value: "last_14_days", label: "14 days", short: "14D" },
+  { value: "last_30_days", label: "30 days", short: "30D" },
+  { value: "this_month", label: "This month", short: "MTD" },
+  { value: "last_month", label: "Last month", short: "LM" },
+];
 
-type AgencyDebugInfo = {
-  id: string;
-  name: string;
-  slug: string;
-  google_ads_manager_customer_id?: string | null;
-  google_ads_connection_status?: string | null;
-  google_ads_refresh_token_masked?: string | null;
-};
+function span(start: string, end: string): string {
+  const from = new Date(start).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const to = new Date(end).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+  return `${from} – ${to}`;
+}
 
 export default function AgencyDashboard() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const slug = (Array.isArray(params?.slug) ? params.slug[0] : params?.slug) ?? "";
+  const view = searchParams.get("view") === "connection" ? "connection" : "clients";
 
   const [agency, setAgency] = useState<Agency | null>(null);
-  const [adminDebug, setAdminDebug] = useState<AgencyDebugInfo | null>(null);
-  const [managedAccounts, setManagedAccounts] = useState<ManagedGoogleAdsAccount[]>([]);
-  const [clients, setClients] = useState<Client[]>([]);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [clients, setClients] = useState<ClientRow[]>([]);
+  const [totals, setTotals] = useState<Totals | null>(null);
+  const [period, setPeriod] = useState<Period | null>(null);
+  const [dateRange, setDateRange] = useState("last_7_days");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [showInviteForm, setShowInviteForm] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState("");
+  const [isSample, setIsSample] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+
+  const [showInvite, setShowInvite] = useState(false);
   const [inviteName, setInviteName] = useState("");
+  const [inviteEmail, setInviteEmail] = useState("");
   const [inviteCustomerId, setInviteCustomerId] = useState("");
-  const [invitationUrl, setInvitationUrl] = useState("");
-  const [showInvitationModal, setShowInvitationModal] = useState(false);
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteError, setInviteError] = useState("");
+  const [inviteLink, setInviteLink] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
-    async function loadData() {
-      setLoading(true);
+    let cancelled = false;
 
-      // Check user session
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (!sessionData.session) {
+    async function load() {
+      const res = await fetch(
+        `/api/agencies/${slug}/overview?dateRange=${encodeURIComponent(dateRange)}`
+      );
+
+      if (cancelled) return;
+
+      if (res.status === 401) {
         router.push(`/agencies/${slug}/login`);
         return;
       }
 
-      // Get user profile
-      const { data: profileData, error: profileError } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", sessionData.session.user.id)
-        .maybeSingle();
-
-      if (profileError || !profileData) {
-        setError("Could not load your profile");
+      if (res.status === 403) {
+        setError("You do not have access to this agency.");
         setLoading(false);
         return;
       }
 
-      // Verify user is agency_admin for this agency
-      if (profileData.role !== "agency_admin") {
-        setError("You do not have permission to access this page");
+      if (!res.ok) {
+        setError("This workspace could not be found.");
         setLoading(false);
         return;
       }
 
-      setProfile(profileData as UserProfile);
+      const data = await res.json();
+      if (cancelled) return;
 
-      // Load agency
-      const { data: agencyData, error: agencyError } = await supabase
-        .from("agencies")
-        .select("*")
-        .eq("slug", slug)
-        .maybeSingle();
-
-      if (agencyError || !agencyData) {
-        setError("Agency not found");
-        setLoading(false);
-        return;
-      }
-
-      // Verify agency matches user's agency
-      if (agencyData.id !== profileData.agency_id) {
-        setError("You do not have access to this agency");
-        setLoading(false);
-        return;
-      }
-
-      setAgency(agencyData as Agency);
-
-      // Fetch admin debug info (masked token, manager id, etc.) from admin API
-      try {
-        const debugRes = await fetch(`/api/agencies/${slug}`);
-        if (debugRes.ok) {
-          const debugJson = await debugRes.json();
-          setAdminDebug(debugJson);
-        }
-      } catch (err) {
-        console.error("Failed to load admin debug info:", err);
-      }
-
-      try {
-        const accountsRes = await fetch(`/api/google-ads/accounts?agencyId=${agencyData.id}`);
-        if (accountsRes.ok) {
-          const accountsJson = await accountsRes.json();
-          setManagedAccounts(accountsJson.accounts ?? []);
-        } else {
-          setManagedAccounts([]);
-        }
-      } catch (err) {
-        console.error("Failed to load Google Ads account list:", err);
-        setManagedAccounts([]);
-      }
-
-      // Load clients from API
-      const clientsResponse = await fetch(`/api/agencies/${slug}/clients`);
-      
-      if (clientsResponse.ok) {
-        const clientsData = await clientsResponse.json();
-        setClients(clientsData ?? []);
-      } else {
-        console.error("Error loading clients");
-      }
-
+      setAgency(data.agency as Agency);
+      setClients((data.clients ?? []) as ClientRow[]);
+      setTotals(data.totals as Totals);
+      setPeriod(data.period as Period);
+      setIsSample(Boolean(data.isSample));
+      setConnectionError(data.connectionError ?? null);
       setLoading(false);
     }
 
-    if (slug) {
-      loadData();
-    }
-  }, [slug, router]);
+    if (slug) load();
 
-  async function handleInviteClient(e: React.FormEvent) {
-    e.preventDefault();
-    if (!agency || !inviteEmail || !inviteName || !inviteCustomerId) {
-      alert("Please fill in all fields");
-      return;
-    }
+    return () => {
+      cancelled = true;
+    };
+  }, [slug, dateRange, router, reloadToken]);
 
-    // Create a client record
-    const response = await fetch(`/api/agencies/${slug}/clients`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: inviteName,
-        email: inviteEmail,
-        google_ads_customer_id: inviteCustomerId,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      alert("Error inviting client: " + (errorData.error || "Unknown error"));
-      return;
-    }
-
-    const newClient = await response.json();
-
-    // The API creates the account and returns a single-use link for this exact
-    // address; it cannot be rebuilt from the client id, which is the point.
-    if (newClient.inviteLink) {
-      setInvitationUrl(newClient.inviteLink);
-      setShowInvitationModal(true);
-    } else {
-      alert(
-        "Client saved, but the invitation could not be created: " +
-          (newClient.inviteError ?? "unknown error")
-      );
-    }
-
-    setInviteEmail("");
-    setInviteName("");
-    setInviteCustomerId("");
-    setShowInviteForm(false);
-
-    // Reload clients
-    const clientsResponse = await fetch(`/api/agencies/${slug}/clients`);
-    if (clientsResponse.ok) {
-      const clientsData = await clientsResponse.json();
-      setClients(clientsData ?? []);
-    }
-  }
-
-  async function handleDeleteClient(clientId: string) {
-    if (!confirm("Are you sure you want to delete this client?")) {
-      return;
-    }
+  async function handleInvite(event: React.FormEvent) {
+    event.preventDefault();
+    setInviteBusy(true);
+    setInviteError("");
 
     try {
-      const response = await fetch(`/api/agencies/${slug}/clients/${clientId}`, {
-        method: "DELETE",
+      const res = await fetch(`/api/agencies/${slug}/clients`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: inviteName,
+          email: inviteEmail,
+          google_ads_customer_id: inviteCustomerId,
+        }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        alert("Error deleting client: " + (errorData.error || "Unknown error"));
+      const data = await res.json();
+
+      if (!res.ok) {
+        setInviteError(data.error ?? "The client could not be added.");
         return;
       }
 
-      setClients((current) => current.filter((c) => c.id !== clientId));
-    } catch (error) {
-      alert("Error deleting client: " + (error instanceof Error ? error.message : "Unknown error"));
+      if (!data.inviteLink) {
+        setInviteError(
+          data.inviteError ?? "The client was saved but no invitation could be created."
+        );
+        return;
+      }
+
+      setInviteLink(data.inviteLink);
+      setInviteName("");
+      setInviteEmail("");
+      setInviteCustomerId("");
+      setReloadToken((token) => token + 1);
+    } catch {
+      setInviteError("The client could not be added. Try again in a moment.");
+    } finally {
+      setInviteBusy(false);
     }
   }
 
-  function copyToClipboard(text: string) {
-    navigator.clipboard.writeText(text);
-    alert("URL copied to clipboard!");
-  }
-
   async function handleLogout() {
-    await supabase.auth.signOut();
+    await signOut();
     router.push(`/agencies/${slug}/login`);
   }
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-slate-50 p-6 md:p-10">
-        <div className="flex items-center justify-center">
-          <p className="text-slate-600">Loading...</p>
-        </div>
+      <main className="flex min-h-screen items-center justify-center bg-canvas">
+        <p className="text-sm text-ink-soft">Loading your workspace…</p>
       </main>
     );
   }
 
-  if (error) {
+  if (error || !agency) {
     return (
-      <main className="min-h-screen bg-slate-50 p-6 md:p-10">
-        <div className="mx-auto max-w-7xl">
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700">
-            <p className="font-semibold">Error:</p>
-            <p>{error}</p>
-          </div>
-        </div>
+      <main className="flex min-h-screen items-center justify-center bg-canvas p-6">
+        <Card className="max-w-md p-6">
+          <p className="text-sm text-ink">{error || "This page is unavailable."}</p>
+        </Card>
       </main>
     );
   }
 
-  if (!agency || !profile) {
-    return (
-      <main className="min-h-screen bg-slate-50 p-6 md:p-10">
-        <div className="flex items-center justify-center">
-          <p className="text-slate-600">Agency not found</p>
-        </div>
-      </main>
-    );
-  }
+  // The first client's daily spend stands in for the agency shape until a
+  // combined series is worth the extra queries.
+  const spendSeries: Point[] = clients[0]?.spendSeries ?? [];
 
   return (
-    <main className="min-h-screen bg-slate-50 p-6 md:p-10">
-      <div className="mx-auto max-w-7xl">
-        {/* Header */}
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <AgencyShell
+      agencyName={agency.name}
+      slug={slug}
+      active={view === "connection" ? "connection" : "clients"}
+      actions={
+        <Button variant="secondary" size="nav" onClick={handleLogout}>
+          Sign out
+        </Button>
+      }
+    >
+      {isSample ? (
+        <div className="animate-fade mb-4 flex items-center gap-2 rounded-xl bg-caution-tint px-4 py-2.5 text-sm text-caution">
+          <span aria-hidden="true">●</span>
+          <span>
+            <strong className="font-medium">Sample data.</strong> These figures are generated
+            for development and are not from Google Ads.
+          </span>
+        </div>
+      ) : null}
+
+      {connectionError ? (
+        <div className="animate-fade mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-caution-tint px-4 py-3 text-sm text-caution">
+          <span>
+            <strong className="font-medium">Google Ads needs reconnecting.</strong> Figures
+            are paused until it is restored.
+          </span>
+          <Button
+            size="nav"
+            onClick={() => window.open(`/api/google-ads/auth?agencyId=${agency.id}`, "_blank")}
+          >
+            Reconnect
+          </Button>
+        </div>
+      ) : null}
+
+      {view === "connection" ? (
+        <GoogleAdsAccounts
+          slug={slug}
+          connectionStatus={agency.connectionStatus}
+          managerCustomerId={agency.managerCustomerId}
+          clientCustomerIds={clients.map((client) => client.googleAdsCustomerId ?? "")}
+          onReconnect={() =>
+            window.open(`/api/google-ads/auth?agencyId=${agency.id}`, "_blank")
+          }
+          onAddClient={({ name, customerId }) => {
+            // Start the same invitation flow, with the account already filled in.
+            setInviteName(name);
+            setInviteCustomerId(customerId);
+            setInviteEmail("");
+            setInviteLink("");
+            setInviteError("");
+            setCopied(false);
+            setShowInvite(true);
+          }}
+        />
+      ) : (
+        <>
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-medium tracking-[-0.025em] text-ink">Clients</h1>
+              <p className="mt-1 text-sm text-ink-soft">
+                {period ? span(period.start, period.end) : ""}
+              </p>
+            </div>
+            <Segmented
+              label="Report period"
+              options={DATE_RANGES}
+              value={dateRange}
+              onChange={setDateRange}
+            />
+          </div>
+
+          <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <SummaryTile
+              label="Clients"
+              value={formatNumber(clients.length)}
+              caption={`${clients.filter((c) => c.status === "active").length} active`}
+            />
+            <SummaryTile
+              label="Ad spend"
+              value={totals ? formatCurrency(totals.cost) : "—"}
+              points={spendSeries}
+            />
+            <SummaryTile
+              label="Conversions"
+              value={totals ? formatNumber(totals.conversions) : "—"}
+            />
+            <SummaryTile
+              label="Cost per conversion"
+              value={
+                totals && totals.conversions > 0
+                  ? formatCurrency(totals.costPerConversion)
+                  : "—"
+              }
+            />
+          </div>
+
+          <ClientTable
+            clients={clients}
+            slug={slug}
+            onInvite={() => {
+              setInviteLink("");
+              setInviteError("");
+              setCopied(false);
+              setShowInvite(true);
+            }}
+          />
+        </>
+      )}
+
+      <Modal
+        open={showInvite}
+        onClose={() => setShowInvite(false)}
+        title={inviteLink ? "Client added" : "Add a client"}
+        subtitle={
+          inviteLink
+            ? "Send them this private link so they can set a password."
+            : "They get their own login and see only their own account."
+        }
+      >
+        {inviteLink ? (
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
-              Agency Dashboard
-            </p>
-            <h1 className="mt-2 text-3xl font-bold text-slate-900">{agency.name}</h1>
-            <p className="mt-1 text-sm text-slate-600">
-              Email: {profile.email}
-            </p>
-          </div>
-
-          <div className="flex gap-2">
-            <button
-              onClick={() => setShowInviteForm(!showInviteForm)}
-              className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700"
-            >
-              + Invite Client
-            </button>
-            <button
-              onClick={() => copyToClipboard(`${window.location.origin}/agencies/${slug}`)}
-              className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-            >
-              Copy URL
-            </button>
-            <button
-              onClick={() => window.open(`/api/google-ads/auth?agencyId=${agency.id}`, "_blank")}
-              className="inline-flex items-center justify-center rounded-xl border border-sky-500 bg-white px-4 py-2.5 text-sm font-semibold text-sky-700 shadow-sm transition hover:bg-sky-50"
-            >
-              Connect Google Ads
-            </button>
-            <button
-              onClick={handleLogout}
-              className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-            >
-              Logout
-            </button>
-          </div>
-        </div>
-
-        {/* Invite Form */}
-        {showInviteForm && (
-          <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-slate-900">Invite Client</h2>
-            <form onSubmit={handleInviteClient} className="mt-4 space-y-4">
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">
-                  Client Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="ABC Corp"
-                  value={inviteName}
-                  onChange={(e) => setInviteName(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none transition focus:border-slate-500"
-                />
-              </div>
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">
-                  Client Email
-                </label>
-                <input
-                  type="email"
-                  required
-                  placeholder="contact@client.com"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none transition focus:border-slate-500"
-                />
-              </div>
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">
-                  Google Ads Customer ID
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="1234567890"
-                  value={inviteCustomerId}
-                  onChange={(e) => setInviteCustomerId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none transition focus:border-slate-500"
-                />
-                <p className="mt-1 text-xs text-slate-500">
-                  Format: 1234567890 or 123-456-7890
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  type="submit"
-                  className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
-                >
-                  Send Invitation
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowInviteForm(false)}
-                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-
-        {/* Invitation URL Modal */}
-        {showInvitationModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-            <div className="mx-4 max-w-lg rounded-2xl bg-white p-8 shadow-lg">
-              <h2 className="text-lg font-semibold text-slate-900">Client Invitation Link</h2>
-              <p className="mt-3 text-sm text-slate-600">
-                Share this link with your client to sign up:
-              </p>
-              <div className="mt-4 flex gap-2">
-                <input
-                  type="text"
-                  value={invitationUrl}
-                  readOnly
-                  className="flex-1 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700"
-                />
-                <button
-                  onClick={() => copyToClipboard(invitationUrl)}
-                  className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
-                >
-                  Copy
-                </button>
-              </div>
-              <button
-                onClick={() => setShowInvitationModal(false)}
-                className="mt-6 w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            <div className="flex gap-2">
+              <input
+                readOnly
+                value={inviteLink}
+                className="w-full rounded-xl bg-surface-sunken px-3 py-2.5 text-sm text-ink ring-1 ring-line"
+              />
+              <Button
+                onClick={() => {
+                  navigator.clipboard.writeText(inviteLink);
+                  setCopied(true);
+                }}
               >
-                Close
-              </button>
+                {copied ? "Copied" : "Copy"}
+              </Button>
+            </div>
+            <p className="mt-3 text-xs text-ink-soft">
+              The link works once, and only for the address you entered. If it expires, add
+              the client again to issue a new one.
+            </p>
+            <div className="mt-5 flex justify-end">
+              <Button variant="secondary" onClick={() => setShowInvite(false)}>
+                Done
+              </Button>
             </div>
           </div>
-        )}
-
-        {/* Stats */}
-        <div className="mt-8 grid gap-4 md:grid-cols-3">
-          {[
-            { label: "Total Clients", value: clients.length },
-            { label: "Active Clients", value: clients.filter(c => c.status === "active").length },
-            { label: "Pending Invitations", value: clients.filter(c => c.status === "invited").length },
-          ].map((item) => (
-            <div key={item.label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-sm text-slate-500">{item.label}</p>
-              <p className="mt-3 text-3xl font-bold text-slate-900">{item.value}</p>
-            </div>
-          ))}
-        </div>
-
-        {agency.google_ads_connection_status === "expired" && (
-          <div className="mt-8 rounded-2xl border border-amber-200 bg-amber-50 p-6 shadow-sm">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.2em] text-amber-700">
-                  Google Ads
-                </p>
-                <h2 className="mt-2 text-xl font-bold text-amber-900">
-                  Connection expired
-                </h2>
-                <p className="mt-1 text-sm text-amber-800">
-                  Google no longer accepts this connection, so campaign data cannot
-                  load. Reconnect to restore it.
-                </p>
-              </div>
-              <button
-                onClick={() =>
-                  window.open(`/api/google-ads/auth?agencyId=${agency.id}`, "_blank")
-                }
-                className="inline-flex shrink-0 items-center justify-center rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700"
-              >
-                Reconnect Google Ads
-              </button>
-            </div>
-          </div>
-        )}
-
-        {agency.google_ads_connection_status === "connected" && (
-          <div className="mt-8 rounded-2xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-700">Google Ads</p>
-                <h2 className="mt-2 text-xl font-bold text-emerald-900">Available MCC Accounts</h2>
-              </div>
-              <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">
-                MCC connected
-              </span>
-            </div>
-
-            {managedAccounts.length === 0 ? (
-              <p className="mt-4 text-sm text-emerald-800">
-                Your MCC account is connected, but no child ad accounts were returned yet.
+        ) : (
+          <form onSubmit={handleInvite} className="space-y-4">
+            {inviteError ? (
+              <p className="rounded-xl bg-negative-tint px-3.5 py-2.5 text-sm text-negative">
+                {inviteError}
               </p>
-            ) : (
-              <div className="mt-4 overflow-x-auto rounded-xl border border-emerald-200 bg-white">
-                <table className="min-w-full text-left">
-                  <thead className="border-b border-emerald-200 bg-emerald-50">
-                    <tr>
-                      <th className="px-4 py-3 text-sm font-semibold text-emerald-900">Account Name</th>
-                      <th className="px-4 py-3 text-sm font-semibold text-emerald-900">Customer ID</th>
-                      <th className="px-4 py-3 text-sm font-semibold text-emerald-900">Status</th>
-                      <th className="px-4 py-3 text-sm font-semibold text-emerald-900">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {managedAccounts.map((account) => (
-                      <tr key={account.customerId} className="border-b border-emerald-100 last:border-b-0 hover:bg-emerald-50/60">
-                        <td className="px-4 py-3 text-sm font-medium text-slate-900">{account.name}</td>
-                        <td className="px-4 py-3 text-sm text-slate-600">{account.customerId}</td>
-                        <td className="px-4 py-3 text-sm">
-                          <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
-                            {account.status ?? "ENABLED"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-sm">
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => {
-                                setInviteCustomerId(account.customerId);
-                                setShowInviteForm(true);
-                              }}
-                              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
-                            >
-                              Select
-                            </button>
-                            <button
-                              onClick={() => copyToClipboard(account.customerId)}
-                              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                            >
-                              Copy ID
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
+            ) : null}
 
-        {/* Clients Table */}
-        {/* Admin Debug Panel */}
-        {adminDebug && (
-          <div className="mt-8 rounded-2xl border border-amber-200 bg-amber-50 p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-amber-900">Admin Debug</h2>
-            <p className="mt-2 text-sm text-amber-800">Manager ID: <strong>{adminDebug.google_ads_manager_customer_id ?? '—'}</strong></p>
-            <p className="mt-1 text-sm text-amber-800">Refresh Token: <strong>{adminDebug.google_ads_refresh_token_masked ?? 'Not saved'}</strong></p>
-            <p className="mt-2 text-sm text-amber-800">Clients:</p>
-            <ul className="mt-2 ml-4 list-disc text-sm text-amber-900">
-              {clients.map(c => (
-                <li key={c.id}>{c.name} — {c.google_ads_customer_id ?? 'no customer id'}</li>
-              ))}
-            </ul>
-          </div>
+            <Field label="Client name" value={inviteName} onChange={setInviteName} placeholder="Acme Corporation" />
+            <Field
+              label="Client email"
+              value={inviteEmail}
+              onChange={setInviteEmail}
+              placeholder="contact@acme.com"
+              type="email"
+            />
+            <Field
+              label="Google Ads customer ID"
+              value={inviteCustomerId}
+              onChange={setInviteCustomerId}
+              placeholder="123-456-7890"
+              hint="Shown at the top of their Google Ads account."
+            />
+
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" type="button" onClick={() => setShowInvite(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={inviteBusy}>
+                {inviteBusy ? "Adding…" : "Add client"}
+              </Button>
+            </div>
+          </form>
         )}
-        <div className="mt-8">
-          <h2 className="text-lg font-semibold text-slate-900">Your Clients</h2>
-          
-          {clients.length === 0 ? (
-            <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-8 text-center">
-              <p className="text-slate-600">No clients yet. Invite your first client to get started.</p>
-            </div>
-          ) : (
-            <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <table className="w-full">
-                <thead className="border-b border-slate-200 bg-slate-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">
-                      Name
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">
-                      Email
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">
-                      Status
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">
-                      Created
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {clients.map((client) => (
-                    <tr key={client.id} className="border-t border-slate-200 hover:bg-slate-50">
-                      <td className="px-6 py-4 text-sm font-medium text-slate-900">
-                        {client.name}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-slate-600">
-                        {client.email}
-                      </td>
-                      <td className="px-6 py-4 text-sm">
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                            client.status === "active"
-                              ? "bg-green-100 text-green-800"
-                              : "bg-yellow-100 text-yellow-800"
-                          }`}
-                        >
-                          {client.status === "active" ? "Active" : "Invited"}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-slate-600">
-                        {new Date(client.created_at).toLocaleDateString()}
-                      </td>
-                      <td className="px-6 py-4 text-sm">
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() =>
-                              copyToClipboard(
-                                `${window.location.origin}/agencies/${slug}/clients/${client.id}`
-                              )
-                            }
-                            className="rounded-lg bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-200"
-                          >
-                            Copy Link
-                          </button>
-                          <button
-                            onClick={() => handleDeleteClient(client.id)}
-                            className="rounded-lg bg-red-100 px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-200"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+      </Modal>
+    </AgencyShell>
+  );
+}
+
+function SummaryTile({
+  label,
+  value,
+  caption,
+  points,
+}: {
+  label: string;
+  value: string;
+  caption?: string;
+  points?: Point[];
+}) {
+  return (
+    <div className="animate-rise rounded-2xl bg-surface px-4 py-3.5 ring-1 ring-line">
+      <p className="text-xs font-medium uppercase tracking-[0.12em] text-ink-faint">{label}</p>
+      <p className="tabular mt-1.5 text-2xl font-medium tracking-[-0.02em] text-ink">{value}</p>
+      {caption ? <p className="mt-0.5 text-xs text-ink-soft">{caption}</p> : null}
+      {points && points.length > 1 ? (
+        <div className="mt-2">
+          <Sparkline points={points} height={26} />
         </div>
-      </div>
-    </main>
+      ) : null}
+    </div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = "text",
+  hint,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  type?: string;
+  hint?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm font-medium text-ink">{label}</span>
+      <input
+        required
+        type={type}
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-xl bg-surface px-3.5 py-2.5 text-sm text-ink ring-1 ring-line transition placeholder:text-ink-faint focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+      />
+      {hint ? <span className="mt-1 block text-xs text-ink-soft">{hint}</span> : null}
+    </label>
   );
 }

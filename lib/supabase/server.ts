@@ -1,8 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-import { getSupabaseConfig } from "./supabase-env";
-import { supabaseAdmin } from "./supabase-admin";
+import { getSupabaseConfig } from "./env.ts";
+import { supabaseAdmin } from "./admin.ts";
 
 export type AppRole = "master_admin" | "agency_admin" | "client";
 
@@ -44,51 +44,54 @@ export async function getSupabaseServerClient() {
 const DEV_ADMIN_EMAIL = process.env.DEV_ADMIN_EMAIL ?? "";
 
 export async function getCurrentProfile(): Promise<AppProfile | null> {
+  // A real signed-in session always wins. The development shortcut used to be
+  // checked first, and its cookie lasts a day, so signing in as a client on the
+  // same browser still got platform-admin answers from every API route --
+  // which hid exactly the permission bugs you sign in as a client to find.
+  const supabase = await getSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (user) {
+    const { data: profile } = await supabaseAdmin
+      .from("profiles")
+      .select("*")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    return (profile as AppProfile | null) ?? null;
+  }
+
   const cookieStore = await cookies();
   const isDevEnvironment = process.env.NODE_ENV !== "production";
   const devAdminOverride = isDevEnvironment
     ? cookieStore.get("dev_admin_override")?.value
     : undefined;
 
-  if (devAdminOverride && devAdminOverride === DEV_ADMIN_EMAIL) {
-    const { data: profile } = await supabaseAdmin
-      .from("profiles")
-      .select("*")
-      .eq("email", devAdminOverride)
-      .maybeSingle();
-
-    if (profile) {
-      return profile as AppProfile;
-    }
-
-    return {
-      id: "dev-admin",
-      email: devAdminOverride,
-      role: "master_admin",
-      agency_id: null,
-      client_id: null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-  }
-
-  const supabase = await getSupabaseServerClient();
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-
-  if (error || !user) {
+  if (!devAdminOverride || devAdminOverride !== DEV_ADMIN_EMAIL) {
     return null;
   }
 
   const { data: profile } = await supabaseAdmin
     .from("profiles")
     .select("*")
-    .eq("id", user.id)
+    .eq("email", devAdminOverride)
     .maybeSingle();
 
-  return (profile as AppProfile | null) ?? null;
+  if (profile) {
+    return profile as AppProfile;
+  }
+
+  return {
+    id: "dev-admin",
+    email: devAdminOverride,
+    role: "master_admin",
+    agency_id: null,
+    client_id: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
 }
 
 export async function requireRole(allowedRoles: AppRole[]) {

@@ -1,297 +1,365 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { supabase } from "../../lib/supabase";
+import { supabase } from "@/lib/supabase/browser";
+import { signOut } from "@/lib/sign-out";
+import { Button, ButtonLink } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Modal } from "@/components/ui/modal";
+import { StatusPill } from "@/components/ui/status-pill";
+import { ResetLinkButton } from "@/components/reset-link-button";
+import { BrandLockup } from "@/components/ui/brand";
+import { FilterChips } from "@/components/ui/filter-chips";
+import { ThemeToggle } from "@/components/ui/theme";
+import { TopBar, TopBarLink } from "@/components/ui/top-bar";
+import { formatNumber } from "@/lib/format";
 
 type Agency = {
   id: string;
   name: string;
   slug: string;
-  google_ads_connection_status?: string | null;
+  google_ads_manager_customer_id: string | null;
+  google_ads_connection_status: string | null;
   created_at: string;
+  client_count?: number;
+  owner_email?: string | null;
 };
 
-type UserProfile = {
-  id: string;
-  email: string;
-  role: string;
-};
+function joined(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
 
-export default function DashboardPage() {
+export default function MasterDashboard() {
   const router = useRouter();
+
   const [agencies, setAgencies] = useState<Agency[]>([]);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profileEmail, setProfileEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<Agency | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<AgencyFilter>("all");
 
   useEffect(() => {
-    let isMounted = true;
+    let cancelled = false;
 
-    async function loadData() {
-      // Check user session first
-      const { data: sessionData } = await supabase.auth.getSession();
+    async function load() {
+      const res = await fetch("/api/agencies");
 
-      // Check for dev admin override cookie
-      const devAdminOverride = typeof document !== "undefined"
-        ? document.cookie
-            .split("; ")
-            .find((row) => row.startsWith("dev_admin_override="))
-            ?.split("=")[1]
-        : undefined;
+      if (cancelled) return;
 
-      if (!sessionData.session && !devAdminOverride) {
-        if (isMounted) {
-          setError("You must be logged in");
-          setLoading(false);
-        }
+      if (res.status === 401) {
+        router.push("/login");
         return;
       }
 
-      // If using dev override, set profile directly
-      if (devAdminOverride && !sessionData.session) {
-        if (isMounted) {
-          setProfile({
-            id: "dev-admin",
-            email: devAdminOverride,
-            role: "master_admin",
-          });
-        }
-      } else if (sessionData.session) {
-        // Get user profile from database
-        const { data: profileData, error: profileError } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", sessionData.session.user.id)
-          .maybeSingle();
-
-        if (profileError) {
-          console.error("Profile error:", profileError);
-          // If profile doesn't exist, create it
-          if (profileError.code === "PGRST116") {
-            const { data: newProfile, error: createError } = await supabase
-              .from("profiles")
-              .insert({
-                id: sessionData.session.user.id,
-                email: sessionData.session.user.email,
-                role: "master_admin",
-              })
-              .select()
-              .maybeSingle();
-
-            if (createError) {
-              if (isMounted) {
-                setError("Could not create profile: " + createError.message);
-                setLoading(false);
-              }
-              return;
-            }
-            if (isMounted) setProfile(newProfile as UserProfile);
-          } else {
-            if (isMounted) {
-              setError("Could not load your profile: " + profileError.message);
-              setLoading(false);
-            }
-            return;
-          }
-        } else if (profileData && isMounted) {
-          setProfile(profileData as UserProfile);
-        }
-      }
-
-      // Load agencies from API instead of direct Supabase query
-      const agenciesResponse = await fetch("/api/agencies");
-
-      if (!agenciesResponse.ok) {
-        const errorData = await agenciesResponse.json().catch(() => ({}));
-        if (isMounted) {
-          setError("Error loading agencies: " + (errorData.error || "Unknown error"));
-          setLoading(false);
-        }
-        return;
-      }
-
-      const agenciesData = await agenciesResponse.json();
-      if (isMounted) {
-        setAgencies(agenciesData ?? []);
+      if (res.status === 403) {
+        setError("This dashboard is for platform administrators only.");
         setLoading(false);
+        return;
       }
+
+      if (!res.ok) {
+        setError("The agency list could not be loaded.");
+        setLoading(false);
+        return;
+      }
+
+      setAgencies((await res.json()) as Agency[]);
+
+      // Display only; access was already decided by the API above.
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (sessionData.session && !cancelled) {
+        setProfileEmail(sessionData.session.user.email ?? null);
+      }
+
+      setLoading(false);
     }
 
-    loadData();
+    load();
 
     return () => {
-      isMounted = false;
+      cancelled = true;
     };
-  }, []);
+  }, [router]);
 
-  async function handleDeleteAgency(slug: string) {
-    const confirmed = window.confirm("Delete this agency? This action cannot be undone.");
-    if (!confirmed) return;
+  const visible = useMemo(() => {
+    const term = query.trim().toLowerCase();
+
+    return agencies.filter((agency) => {
+      if (statusFilter !== "all" && agencyGroup(agency) !== statusFilter) return false;
+      if (!term) return true;
+
+      return (
+        agency.name.toLowerCase().includes(term) ||
+        agency.slug.toLowerCase().includes(term) ||
+        (agency.owner_email ?? "").toLowerCase().includes(term)
+      );
+    });
+  }, [agencies, query, statusFilter]);
+
+  const filterOptions: Array<{ value: AgencyFilter; label: string; count: number }> = [
+    { value: "all", label: "All", count: agencies.length },
+    {
+      value: "connected",
+      label: "Connected",
+      count: agencies.filter((a) => agencyGroup(a) === "connected").length,
+    },
+    {
+      value: "attention",
+      label: "Needs attention",
+      count: agencies.filter((a) => agencyGroup(a) === "attention").length,
+    },
+    {
+      value: "disconnected",
+      label: "Not connected",
+      count: agencies.filter((a) => agencyGroup(a) === "disconnected").length,
+    },
+  ];
+
+  const totals = useMemo(
+    () => ({
+      agencies: agencies.length,
+      clients: agencies.reduce((sum, agency) => sum + (agency.client_count ?? 0), 0),
+      connected: agencies.filter((a) => a.google_ads_connection_status === "connected").length,
+      needsAttention: agencies.filter(
+        (a) => a.google_ads_connection_status === "expired" || a.google_ads_connection_status === "error"
+      ).length,
+    }),
+    [agencies]
+  );
+
+  async function handleDelete() {
+    if (!pendingDelete) return;
+    setDeleting(true);
 
     try {
-      const response = await fetch(`/api/agencies/${slug}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(`/api/agencies/${pendingDelete.slug}`, { method: "DELETE" });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        alert("Error deleting agency: " + (errorData.error || "Unknown error"));
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error ?? "The agency could not be removed.");
         return;
       }
 
-      setAgencies((current) => current.filter((agency) => agency.slug !== slug));
-    } catch (error) {
-      alert("Error deleting agency: " + (error instanceof Error ? error.message : "Unknown error"));
+      setAgencies((current) => current.filter((a) => a.slug !== pendingDelete.slug));
+      setPendingDelete(null);
+    } finally {
+      setDeleting(false);
     }
   }
 
   async function handleLogout() {
-    // Clear dev admin cookie
-    document.cookie = "dev_admin_override=; path=/; max-age=0";
-    // Sign out from Supabase
-    await supabase.auth.signOut();
-    // Redirect to login
+    await signOut();
     router.push("/login");
   }
 
-  function copyAgencyUrl(slug: string) {
-    try {
-      const url = `${window.location.origin}/agencies/${slug}`;
-      navigator.clipboard.writeText(url);
-      alert("Agency URL copied to clipboard!");
-    } catch (err) {
-      console.error("Failed to copy URL", err);
-      alert("Failed to copy URL");
-    }
+  function copyLoginLink(agency: Agency) {
+    navigator.clipboard.writeText(`${window.location.origin}/agencies/${agency.slug}/login`);
+    setCopiedSlug(agency.slug);
   }
-
-  const totalClients = agencies.length * 4;
-  const connectedAccounts = agencies.filter(
-    (agency) => agency.google_ads_connection_status === "connected"
-  ).length;
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-slate-50 p-6 md:p-10">
-        <div className="flex items-center justify-center">
-          <p className="text-slate-600">Loading...</p>
-        </div>
+      <main className="flex min-h-screen items-center justify-center bg-canvas">
+        <p className="text-sm text-ink-soft">Loading agencies…</p>
       </main>
     );
   }
 
-  if (error) {
+  if (error && agencies.length === 0) {
     return (
-      <main className="min-h-screen bg-slate-50 p-6 md:p-10">
-        <div className="mx-auto max-w-7xl">
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700">
-            <p className="font-semibold">Error:</p>
-            <p>{error}</p>
-            <Link href="/login" className="mt-3 inline-block text-red-600 underline">
-              Go to login
-            </Link>
-          </div>
-        </div>
+      <main className="flex min-h-screen items-center justify-center bg-canvas p-6">
+        <Card className="max-w-md p-6">
+          <p className="text-sm text-ink">{error}</p>
+          <Link href="/login" className="mt-3 inline-block text-sm text-brand underline">
+            Go to sign in
+          </Link>
+        </Card>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 p-6 md:p-10">
-      <div className="mx-auto max-w-7xl">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div className="min-h-screen bg-canvas">
+      <TopBar
+        identity={
+          <BrandLockup href="/dashboard" subtitle={profileEmail ?? "Platform admin"} />
+        }
+        nav={
+          <>
+            <TopBarLink href="/dashboard" label="Agencies" active />
+            <TopBarLink href="/agencies/new" label="New agency" />
+          </>
+        }
+        actions={
+          <>
+            <ThemeToggle />
+            <Button variant="secondary" size="nav" onClick={handleLogout}>
+              Sign out
+            </Button>
+          </>
+        }
+      />
+
+      <main className="mx-auto max-w-[1400px] px-5 py-6 sm:px-8">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Platform overview</p>
-            <h1 className="mt-2 text-3xl font-bold text-slate-900">Master Dashboard</h1>
-            {profile && <p className="mt-1 text-sm text-slate-600">Logged in as: {profile.email}</p>}
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-brand">
+              Platform overview
+            </p>
+            <h1 className="mt-1 text-2xl font-medium tracking-[-0.025em] text-ink">Agencies</h1>
           </div>
-
-          <div className="flex gap-2">
-            <Link
-              href="/agencies/new"
-              className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700"
-            >
-              + Create Agency
-            </Link>
-            <button
-              onClick={handleLogout}
-              className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-            >
-              Logout
-            </button>
-          </div>
+          <ButtonLink href="/agencies/new" size="nav">
+            + Create agency
+          </ButtonLink>
         </div>
 
-        <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {[
-            { label: "Total Agencies", value: agencies.length },
-            { label: "Total Clients", value: totalClients },
-            { label: "Connected Google Ads Accounts", value: connectedAccounts },
-            { label: "Total Ad Spend", value: "$0" },
-          ].map((item) => (
-            <div key={item.label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-sm text-slate-500">{item.label}</p>
-              <p className="mt-3 text-3xl font-bold text-slate-900">{item.value}</p>
+        {error ? (
+          <p className="mt-4 rounded-xl bg-negative-tint px-4 py-2.5 text-sm text-negative">
+            {error}
+          </p>
+        ) : null}
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Tile label="Agencies" value={formatNumber(totals.agencies)} />
+          <Tile label="Clients" value={formatNumber(totals.clients)} />
+          <Tile label="Google Ads connected" value={formatNumber(totals.connected)} />
+          <Tile
+            label="Needs attention"
+            value={formatNumber(totals.needsAttention)}
+            tone={totals.needsAttention > 0 ? "caution" : undefined}
+            caption={totals.needsAttention > 0 ? "Connection expired" : "All connections healthy"}
+          />
+        </div>
+
+        <section className="animate-rise mt-5 rounded-2xl bg-surface ring-1 ring-line">
+          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3.5">
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-medium tracking-[-0.01em] text-ink">All agencies</h2>
+              <span className="tabular rounded-full bg-surface-sunken px-2 py-0.5 text-xs font-medium text-ink-soft">
+                {agencies.length}
+              </span>
             </div>
-          ))}
-        </div>
 
-        <div className="mt-10 rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-200 p-5">
-            <h2 className="text-xl font-bold text-slate-900">Agencies</h2>
+            <label className="ml-auto">
+              <span className="sr-only">Search agencies</span>
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search agencies"
+                className="w-48 rounded-xl bg-surface-sunken px-3 py-1.5 text-sm text-ink ring-1 ring-line transition placeholder:text-ink-faint focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+              />
+            </label>
+          </header>
+
+          <div className="border-b border-line px-5 py-3">
+            <FilterChips
+              label="Filter agencies by connection"
+              options={filterOptions}
+              value={statusFilter}
+              onChange={setStatusFilter}
+            />
           </div>
 
-          {agencies.length === 0 ? (
-            <div className="p-5 text-slate-500">No agencies created yet.</div>
+          {visible.length === 0 ? (
+            <div className="px-5 py-12 text-center">
+              <p className="text-sm font-medium text-ink">
+                {agencies.length === 0 ? "No agencies yet" : "No agencies match this view"}
+              </p>
+              <p className="mx-auto mt-1 max-w-sm text-sm text-ink-soft">
+                {agencies.length === 0
+                  ? "Create an agency and send its owner the invitation link to get them started."
+                  : "Try another filter, or a different name, slug or owner email."}
+              </p>
+              {agencies.length === 0 ? (
+                <div className="mt-5 flex justify-center">
+                  <ButtonLink href="/agencies/new">Create the first agency</ButtonLink>
+                </div>
+              ) : null}
+            </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-600">
-                  <tr>
-                    <th className="p-4 font-semibold">Agency Name</th>
-                    <th className="p-4 font-semibold">Owner</th>
-                    <th className="p-4 font-semibold">Clients</th>
-                    <th className="p-4 font-semibold">Google Ads Status</th>
-                    <th className="p-4 font-semibold">Created</th>
-                    <th className="p-4 font-semibold">Actions</th>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-line text-left text-[11px] font-medium uppercase tracking-[0.1em] text-ink-faint">
+                    <th className="px-5 py-2.5">Agency</th>
+                    <th className="px-5 py-2.5">Owner</th>
+                    <th className="px-5 py-2.5">Google Ads</th>
+                    <th className="px-5 py-2.5 text-right">Clients</th>
+                    <th className="px-5 py-2.5">Created</th>
+                    <th className="px-5 py-2.5 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {agencies.map((agency) => (
-                    <tr key={agency.id} className="border-t border-slate-200">
-                      <td className="p-4 font-medium text-slate-900">{agency.name}</td>
-                      <td className="p-4 text-slate-600">Agency Admin</td>
-                      <td className="p-4 text-slate-600">{Math.max(1, Math.round(agencies.length / 2))}</td>
-                      <td className="p-4">
-                        <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">
-                          {agency.google_ads_connection_status ?? "disconnected"}
-                        </span>
-                      </td>
-                      <td className="p-4 text-slate-600">
-                        {new Date(agency.created_at).toLocaleDateString()}
-                      </td>
-                      <td className="p-4">
-                        <div className="flex items-center gap-3">
-                          <Link href={`/agencies/${agency.slug}`} className="font-medium text-blue-600 hover:underline">
-                            Manage
-                          </Link>
-                          <button
-                            type="button"
-                            onClick={() => copyAgencyUrl(agency.slug)}
-                            className="font-medium text-slate-700 hover:underline"
+                  {visible.map((agency) => (
+                    <tr
+                      key={agency.id}
+                      className="group border-b border-line transition last:border-0 hover:bg-surface-sunken"
+                    >
+                      <td className="px-5 py-3">
+                        <Link
+                          href={`/agencies/${agency.slug}/dashboard`}
+                          className="flex items-center gap-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                        >
+                          <span
+                            aria-hidden="true"
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-tint text-xs font-semibold text-brand"
                           >
-                            Copy URL
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteAgency(agency.slug)}
-                            className="font-medium text-red-600 hover:underline"
+                            {agency.name.slice(0, 1).toUpperCase()}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block truncate font-medium text-ink group-hover:text-brand">
+                              {agency.name}
+                            </span>
+                            <span className="block truncate text-xs text-ink-faint">
+                              /{agency.slug}
+                            </span>
+                          </span>
+                        </Link>
+                      </td>
+                      <td className="px-5 py-3 text-ink-soft">
+                        {agency.owner_email ?? (
+                          <span className="text-ink-faint">Invitation not accepted</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3">
+                        <StatusPill status={agency.google_ads_connection_status} />
+                      </td>
+                      <td className="tabular px-5 py-3 text-right text-ink">
+                        {formatNumber(agency.client_count ?? 0)}
+                      </td>
+                      <td className="px-5 py-3 text-ink-soft">{joined(agency.created_at)}</td>
+                      <td className="px-5 py-3">
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => copyLoginLink(agency)}
                           >
-                            Delete
-                          </button>
+                            {copiedSlug === agency.slug ? "Copied" : "Copy login link"}
+                          </Button>
+                          {agency.owner_email ? (
+                            <ResetLinkButton
+                              endpoint={`/api/agencies/${agency.slug}/owner-access-link`}
+                              who={`${agency.name}'s owner`}
+                            />
+                          ) : null}
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            onClick={() => setPendingDelete(agency)}
+                          >
+                            Remove
+                          </Button>
                         </div>
                       </td>
                     </tr>
@@ -300,8 +368,69 @@ export default function DashboardPage() {
               </table>
             </div>
           )}
+        </section>
+      </main>
+
+      <Modal
+        open={pendingDelete !== null}
+        onClose={() => setPendingDelete(null)}
+        title={`Remove ${pendingDelete?.name ?? "agency"}?`}
+        subtitle="This cannot be undone."
+      >
+        <p className="text-sm text-ink-soft">
+          Removing this agency also removes its{" "}
+          <strong className="font-medium text-ink">
+            {formatNumber(pendingDelete?.client_count ?? 0)} client
+            {(pendingDelete?.client_count ?? 0) === 1 ? "" : "s"}
+          </strong>{" "}
+          and their access to reports. The Google Ads accounts themselves are not touched.
+        </p>
+
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => setPendingDelete(null)}>
+            Keep agency
+          </Button>
+          <Button variant="danger" onClick={handleDelete} disabled={deleting}>
+            {deleting ? "Removing…" : "Remove agency"}
+          </Button>
         </div>
-      </div>
-    </main>
+      </Modal>
+    </div>
+  );
+}
+
+type AgencyFilter = "all" | "connected" | "attention" | "disconnected";
+
+/** Which bucket an agency's Google Ads connection falls in. */
+function agencyGroup(agency: Agency): Exclude<AgencyFilter, "all"> {
+  const status = agency.google_ads_connection_status;
+  if (status === "connected") return "connected";
+  if (status === "expired" || status === "error") return "attention";
+  return "disconnected";
+}
+
+function Tile({
+  label,
+  value,
+  caption,
+  tone,
+}: {
+  label: string;
+  value: string;
+  caption?: string;
+  tone?: "caution";
+}) {
+  return (
+    <div className="animate-rise rounded-2xl bg-surface px-4 py-3.5 ring-1 ring-line">
+      <p className="text-xs font-medium uppercase tracking-[0.12em] text-ink-faint">{label}</p>
+      <p
+        className={`tabular mt-1.5 text-2xl font-medium tracking-[-0.02em] ${
+          tone === "caution" ? "text-caution" : "text-ink"
+        }`}
+      >
+        {value}
+      </p>
+      {caption ? <p className="mt-0.5 text-xs text-ink-soft">{caption}</p> : null}
+    </div>
   );
 }

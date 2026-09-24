@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { supabaseAdmin } from "../../../../lib/supabase-admin";
-import { getCurrentProfile } from "../../../../lib/supabase-server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getCurrentProfile } from "@/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
   const profile = await getCurrentProfile();

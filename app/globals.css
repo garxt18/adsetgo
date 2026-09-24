@@ -1,26 +1,287 @@
 @import "tailwindcss";
 
+/*
+ * Theme selection, without any JavaScript.
+ *
+ * With no explicit choice the system preference applies, through the media
+ * query below. A choice is stored in a cookie the server reads, so the correct
+ * class is already on <html> in the first byte of HTML: no inline script, and
+ * no flash of the wrong theme.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Semantic tokens.
+ *
+ * Utilities compile to var(--color-x), which resolves to the raw value below,
+ * so the same class (bg-surface, text-ink) is correct in both themes and no
+ * component needs a dark: variant for colour. Only the values change here.
+ */
+@theme {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-sunken: var(--surface-sunken);
+
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-tint: var(--brand-tint);
+
+  --color-positive: var(--positive);
+  --color-positive-tint: var(--positive-tint);
+  --color-caution: var(--caution);
+  --color-caution-tint: var(--caution-tint);
+  --color-negative: var(--negative);
+  --color-negative-tint: var(--negative-tint);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+/* Light: white surfaces on a faintly blue canvas, so cards read as raised. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --canvas: #f6f8fb;
+  --surface: #ffffff;
+  --surface-sunken: #f1f4f9;
+
+  /* Ink is blue-black rather than neutral: beside the brand blue a neutral
+     grey reads as dirty, and this keeps text and accent in one family. */
+  --ink: #0b1220;
+  --ink-soft: #556072;
+  --ink-faint: #8792a4;
+
+  --line: #e4e9f0;
+  --line-strong: #cfd7e3;
+
+  --brand: #0b63e5;
+  --brand-hover: #0a4fba;
+  --brand-tint: #eef4ff;
+
+  --positive: #0b8f5f;
+  --positive-tint: #e7f6ef;
+  --caution: #a65c07;
+  --caution-tint: #fdf3e6;
+  --negative: #c9252d;
+  --negative-tint: #fdecec;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* Dark: a navy canvas rather than neutral black, for the same reason as ink.
+   Accent and state colours are lifted so they hold contrast on a dark field. */
+:root.dark {
+  --canvas: #080d17;
+  --surface: #101a2b;
+  --surface-sunken: #0c1422;
+
+  --ink: #e9edf4;
+  --ink-soft: #9fabbd;
+  --ink-faint: #6d7c93;
+
+  --line: #1d293d;
+  --line-strong: #2a3a52;
+
+  --brand: #5b9bff;
+  --brand-hover: #7aaeff;
+  --brand-tint: #14243d;
+
+  --positive: #38d39a;
+  --positive-tint: #0e2a22;
+  --caution: #f0b352;
+  --caution-tint: #2b2113;
+  --negative: #f87171;
+  --negative-tint: #2d1618;
 }
 
+/* Same values when the system asks for dark and nobody has chosen otherwise. */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  :root:not(.light):not(.dark) {
+  --canvas: #080d17;
+  --surface: #101a2b;
+  --surface-sunken: #0c1422;
+
+  --ink: #e9edf4;
+  --ink-soft: #9fabbd;
+  --ink-faint: #6d7c93;
+
+  --line: #1d293d;
+  --line-strong: #2a3a52;
+
+  --brand: #5b9bff;
+  --brand-hover: #7aaeff;
+  --brand-tint: #14243d;
+
+  --positive: #38d39a;
+  --positive-tint: #0e2a22;
+  --caution: #f0b352;
+  --caution-tint: #2b2113;
+  --negative: #f87171;
+  --negative-tint: #2d1618;
   }
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--canvas);
+  /* Geist is loaded in app/layout.tsx and exposed as --font-geist-sans. The
+     scaffold's `font-family: Arial` overrode it, so the app shipped the font
+     download and then never used it. */
+  font-family: var(--font-sans);
+  color: var(--ink);
+}
+
+/*
+ * Figures line up in columns and do not jitter as they change between date
+ * ranges. This app is mostly numbers, so it is the default rather than an
+ * opt-in per component.
+ */
+.tabular,
+table {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Motion.
+ *
+ * Cards arrive in a short stagger on load, so the eye lands on the headline
+ * figures before the detail below them. Everything is a fade with a few pixels
+ * of travel: a dashboard that bounces reads as a toy, and this one carries
+ * someone's ad spend.
+ */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-rise {
+  animation: rise 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-fade {
+  animation: fade 0.25s ease-out both;
+}
+
+.animate-pop {
+  animation: pop 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Stagger steps, applied by index so a grid resolves top-left to bottom-right. */
+.delay-1 { animation-delay: 0.04s; }
+.delay-2 { animation-delay: 0.08s; }
+.delay-3 { animation-delay: 0.12s; }
+.delay-4 { animation-delay: 0.16s; }
+.delay-5 { animation-delay: 0.2s; }
+.delay-6 { animation-delay: 0.24s; }
+
+/* Hero motion: a signal travelling, drawn once then looping slowly. */
+@keyframes draw {
+  from {
+    stroke-dashoffset: 1400;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes drift {
+  0%, 100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -14px, 0);
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.55;
+  }
+  70% {
+    opacity: 0;
+  }
+  100% {
+    transform: scale(2.1);
+    opacity: 0;
+  }
+}
+
+@keyframes flow {
+  from {
+    stroke-dashoffset: 260;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes glow {
+  0%, 100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+.animate-draw {
+  stroke-dasharray: 1400;
+  animation: draw 2.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-drift {
+  animation: drift 9s ease-in-out infinite;
+}
+
+.animate-pulse-ring {
+  transform-origin: center;
+  animation: pulse-ring 3.2s ease-out infinite;
+}
+
+.animate-flow {
+  stroke-dasharray: 10 14;
+  animation: flow 3.4s linear infinite;
+}
+
+.animate-glow {
+  animation: glow 6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

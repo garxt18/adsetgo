@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { getSupabaseConfig } from "./lib/supabase-env";
+import { getSupabaseConfig } from "@/lib/supabase/env";
 
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
@@ -76,10 +76,10 @@ export async function middleware(request: NextRequest) {
     const subpath = agencyMatch[2] || "";
 
     // Public agency routes
+    // Accounts are created by invitation, so the only pages a signed-out
+    // visitor needs are the two sign-in screens.
     const isPublicAgencyRoute =
-      subpath === "/login" ||
-      subpath === "/client-login" ||
-      subpath.startsWith("/client-signup");
+      subpath === "/login" || subpath === "/client-login";
 
     if (!isPublicAgencyRoute && !isAuthenticated && !devAdminOverride) {
       if (subpath === "/client-dashboard") {

@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "../supabase-admin.ts";
+import { supabaseAdmin } from "../supabase/admin.ts";
 import {
   formatGoogleAdsCustomerId,
   normalizeGoogleAdsCustomerId,
@@ -268,12 +268,15 @@ export async function fetchAllGoogleAdsAccounts({
 export async function fetchGoogleAdsMetrics({
   clientCustomerId,
   managerCustomerId,
-  dateRange,
+  startDate,
+  endDate,
   accessToken,
 }: {
   clientCustomerId: string;
   managerCustomerId?: string | null;
-  dateRange: string;
+  /** Inclusive YYYY-MM-DD bounds; see lib/google-ads/date-range.ts. */
+  startDate: string;
+  endDate: string;
   accessToken: string;
 }): Promise<GoogleAdsRow[]> {
   const cleanedCustomerId = normalizeGoogleAdsCustomerId(clientCustomerId);
@@ -298,7 +301,7 @@ export async function fetchGoogleAdsMetrics({
       metrics.average_cpc,
       metrics.average_cpm
     FROM campaign
-    WHERE segments.date DURING ${dateRange}
+    WHERE segments.date BETWEEN '${startDate}' AND '${endDate}' 
     ORDER BY segments.date ASC
   `;
 

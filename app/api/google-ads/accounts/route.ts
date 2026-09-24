@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   fetchAllGoogleAdsAccounts,
-  fetchAccessibleGoogleAdsCustomers,
   getGoogleAdsAccessToken,
   type FullGoogleAdsAccount,
 } from "@/lib/google-ads/auth";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { reportCacheKey, withReportCache } from "@/lib/google-ads/report-cache";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireApiAuth, requireAgencyAccess } from "@/lib/api-auth";
 
 export async function GET(request: NextRequest) {
@@ -58,24 +58,21 @@ export async function GET(request: NextRequest) {
       agencyId: agency?.id,
     });
 
-    // 2. Fetch accessible customer IDs
-    let accessibleCustomerIds: string[] = [];
-    try {
-      accessibleCustomerIds = await fetchAccessibleGoogleAdsCustomers({
-        accessToken,
-      });
-    } catch (err) {
-      console.warn("fetchAccessibleGoogleAdsCustomers error:", err);
-    }
-
-    // 3. Fetch all accounts (active, canceled, hidden, managers, and all customer IDs)
+    // fetchAllGoogleAdsAccounts already asks Google which customers the token
+    // can see; asking again here spent a second operation on every load for a
+    // list no page used. The result is cached because the account tree changes
+    // rarely and every look at the Google Ads view would otherwise re-query it.
     let accounts: FullGoogleAdsAccount[] = [];
     let accountsError: string | null = null;
     try {
-      accounts = await fetchAllGoogleAdsAccounts({
-        accessToken,
-        managerCustomerId: agency?.google_ads_manager_customer_id,
-      });
+      accounts = await withReportCache(
+        reportCacheKey(["account-tree", agency.id, agency.google_ads_manager_customer_id]),
+        () =>
+          fetchAllGoogleAdsAccounts({
+            accessToken,
+            managerCustomerId: agency?.google_ads_manager_customer_id,
+          })
+      );
     } catch (err) {
       accountsError = err instanceof Error ? err.message : String(err);
     }
@@ -105,7 +102,6 @@ export async function GET(request: NextRequest) {
         : null,
       summary,
       accounts,
-      accessibleCustomerIds,
       accountsError,
     });
   } catch (error) {
@@ -129,7 +125,6 @@ export async function GET(request: NextRequest) {
         : null,
       summary: { total: 0, active: 0, canceled: 0, hidden: 0, managers: 0 },
       accounts: [],
-      accessibleCustomerIds: [],
       error: error instanceof Error ? error.message : String(error),
     }, { status: 200 });
   }

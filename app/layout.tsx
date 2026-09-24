@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { Geist, Geist_Mono } from "next/font/google";
+
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,22 +15,29 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Google Ads SaaS",
-  description: "Multi-tenant Google Ads dashboard for agencies and clients",
+  title: "AdSetGo — Google Ads reporting for agencies",
+  description: "Give every client their own live Google Ads report.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // The stored choice arrives with the request, so the right theme is in the
+  // first byte of HTML. With nothing stored, no class is set and the media
+  // query in globals.css follows the system. Either way there is no inline
+  // script and no flash of the wrong theme.
+  const stored = (await cookies()).get("theme")?.value;
+  const themeClass = stored === "dark" ? "dark" : stored === "light" ? "light" : "";
+
   return (
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${themeClass} h-full antialiased`}
     >
-      <body suppressHydrationWarning className="min-h-full flex flex-col">
+      <body suppressHydrationWarning className="min-h-full flex flex-col bg-canvas text-ink">
         {children}
       </body>
     </html>
