@@ -14,7 +14,6 @@ import { TopBar, TopBarLink } from "@/components/ui/top-bar";
 export default function NewAgencyPage() {
   const [agencyName, setAgencyName] = useState("");
   const [agencySlug, setAgencySlug] = useState("");
-  const [ownerName, setOwnerName] = useState("");
   const [ownerEmail, setOwnerEmail] = useState("");
   const [mccId, setMccId] = useState("");
   const [loading, setLoading] = useState(false);
@@ -141,7 +140,6 @@ export default function NewAgencyPage() {
                   setCreatedAgency(null);
                   setAgencyName("");
                   setAgencySlug("");
-                  setOwnerName("");
                   setOwnerEmail("");
                   setMccId("");
                 }}
@@ -188,22 +186,16 @@ export default function NewAgencyPage() {
                   }`}
                 />
 
-                <div className="grid gap-5 sm:grid-cols-2">
-                  <Field
-                    label="Owner name"
-                    value={ownerName}
-                    onChange={setOwnerName}
-                    placeholder="Ram Prasad"
-                  />
-                  <Field
-                    label="Owner email"
-                    value={ownerEmail}
-                    onChange={setOwnerEmail}
-                    type="email"
-                    placeholder="ram@agency.com"
-                    hint="The invitation works only for this address."
-                  />
-                </div>
+                {/* Only the email: it is what the invitation is bound to, and the
+                    owner's name was asked for here but never stored anywhere. */}
+                <Field
+                  label="Owner email"
+                  value={ownerEmail}
+                  onChange={setOwnerEmail}
+                  type="email"
+                  placeholder="ram@agency.com"
+                  hint="The invitation works only for this address."
+                />
 
                 <Field
                   label="Google Ads manager account"
