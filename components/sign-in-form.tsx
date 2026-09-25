@@ -69,6 +69,12 @@ export function SignInForm({
       email.trim().toLowerCase() === DEV_ADMIN_EMAIL.toLowerCase() &&
       password === DEV_ADMIN_PASSWORD
     ) {
+      // Sign out of any real session first. A real session always outranks
+      // this cookie on the server, so an earlier sign-in (an agency or client
+      // being tested) would otherwise stay in charge: /dashboard answered
+      // "platform administrators only", and signing in again did the same.
+      // Local scope: that account's other devices stay signed in.
+      await supabase.auth.signOut({ scope: "local" });
       document.cookie = `dev_admin_override=${DEV_ADMIN_EMAIL}; path=/; max-age=86400; SameSite=Lax`;
       router.push("/dashboard");
       return;

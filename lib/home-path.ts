@@ -18,3 +18,19 @@ export async function homePathFor(): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * For a page that turned out not to be this person's -- a platform page opened
+ * while signed in as an agency, say: go to their own workspace instead of
+ * stopping at an error whose only way out led back to the same sign-in.
+ *
+ * Returns false when there is nowhere better to go, so the page can offer to
+ * sign out instead.
+ */
+export async function redirectHome(router: { replace: (path: string) => void }): Promise<boolean> {
+  const path = await homePathFor();
+  if (!path || path === window.location.pathname) return false;
+
+  router.replace(path);
+  return true;
+}

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
+import { redirectHome } from "@/lib/home-path";
 import { signOut } from "@/lib/sign-out";
 import { AgencyShell } from "@/components/agency-shell";
 import { ClientTable, type ClientRow } from "@/components/client-table";
@@ -75,6 +76,7 @@ export default function AgencyDashboard() {
       }
 
       if (res.status === 403) {
+        if (await redirectHome(router)) return;
         setError("You do not have access to this agency.");
         setLoading(false);
         return;
@@ -165,6 +167,9 @@ export default function AgencyDashboard() {
       <main className="flex min-h-screen items-center justify-center bg-canvas p-6">
         <Card className="max-w-md p-6">
           <p className="text-sm text-ink">{error || "This page is unavailable."}</p>
+          <Button variant="secondary" size="nav" className="mt-4" onClick={handleLogout}>
+            Sign out and switch account
+          </Button>
         </Card>
       </main>
     );

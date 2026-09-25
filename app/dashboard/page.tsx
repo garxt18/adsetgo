@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { supabase } from "@/lib/supabase/browser";
+import { redirectHome } from "@/lib/home-path";
 import { signOut } from "@/lib/sign-out";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Card, StatTile } from "@/components/ui/card";
@@ -62,6 +63,7 @@ export default function MasterDashboard() {
       }
 
       if (res.status === 403) {
+        if (await redirectHome(router)) return;
         setError("This dashboard is for platform administrators only.");
         setLoading(false);
         return;
@@ -185,9 +187,10 @@ export default function MasterDashboard() {
       <main className="flex min-h-screen items-center justify-center bg-canvas p-6">
         <Card className="max-w-md p-6">
           <p className="text-sm text-ink">{error}</p>
-          <Link href="/login" className="mt-3 inline-block text-sm text-brand underline">
-            Go to sign in
-          </Link>
+          {/* Signing in again would keep the same account; switching needs a sign-out. */}
+          <Button variant="secondary" size="nav" className="mt-4" onClick={handleLogout}>
+            Sign out and switch account
+          </Button>
         </Card>
       </main>
     );
