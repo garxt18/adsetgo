@@ -61,7 +61,10 @@ export default async function AgencyClientPage({
   }
 
   return (
+    // Keyed on the account, so pointing the client at another Google Ads
+    // account starts the view afresh and its report is loaded again.
     <ClientView
+      key={client.google_ads_customer_id}
       slug={slug}
       agencyName={agency.name}
       client={{

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireAgency } from "@/lib/api-auth";
+import { parseGoogleAdsCustomerId } from "@/lib/google-ads/format";
 import { createInvite, resolveAppOrigin } from "@/lib/invites";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
@@ -19,6 +20,17 @@ export async function POST(request: Request, ctx: RouteContext<"/api/agencies/[s
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
+    // Stored as ten digits however it was typed, so the one-client-per-account
+    // rule cannot be sidestepped by adding dashes.
+    const customerId = parseGoogleAdsCustomerId(google_ads_customer_id);
+
+    if (!customerId) {
+      return NextResponse.json(
+        { error: "A Google Ads customer ID is ten digits, like 123-456-7890." },
+        { status: 400 }
+      );
+    }
+
     // Create client
     const { data: newClient, error: clientError } = await supabaseAdmin
       .from("clients")
@@ -26,7 +38,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/agencies/[s
         agency_id: agency.id,
         name,
         email,
-        google_ads_customer_id,
+        google_ads_customer_id: customerId,
         status: "invited",
       })
       .select()

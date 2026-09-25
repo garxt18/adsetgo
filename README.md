@@ -78,6 +78,15 @@ dashboard):
    `{{ .SiteURL }}/reset-password?token_hash={{ .TokenHash }}&type=recovery`
    makes it work on any device; `/reset-password` accepts both forms.
 
+## Editing and removing clients
+
+An agency edits or removes a client from the client's page. Editing can change
+the name and the Google Ads account, never the email: the email is the
+client's sign-in address, and moving someone's sign-in to another address is
+how an account is taken over. To change it, remove the client and add them
+again. Customer ids are stored as ten digits however they were typed, so
+"358-312-5339" and "3583125339" cannot become two clients.
+
 ## Removing an agency or client deletes their logins
 
 Deleting an agency deletes its clients (the foreign key cascades) and then the

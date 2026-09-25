@@ -14,6 +14,16 @@ export function normalizeGoogleAdsCustomerId(value?: string | null): string {
   return value.replace(/[^\d]/g, "");
 }
 
+/**
+ * A customer id as it is stored: exactly ten digits, or null when the input
+ * is not one. Stored one way only, so "358-312-5339" and "3583125339" are the
+ * same account to the database's one-client-per-account rule.
+ */
+export function parseGoogleAdsCustomerId(value?: string | null): string | null {
+  const digits = normalizeGoogleAdsCustomerId(value);
+  return digits.length === 10 ? digits : null;
+}
+
 export function formatGoogleAdsCustomerId(value?: string | null): string {
   const digits = normalizeGoogleAdsCustomerId(value);
   if (digits.length === 10) {

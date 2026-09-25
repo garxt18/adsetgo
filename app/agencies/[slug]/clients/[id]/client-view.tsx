@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { signOut } from "@/lib/sign-out";
 import { RANGE_OPTIONS, span } from "@/lib/google-ads/date-range";
+import { formatGoogleAdsCustomerId } from "@/lib/google-ads/format";
 import { AgencyShell } from "@/components/agency-shell";
 import { ReportPanel, useReport } from "@/components/report-panel";
 import { ResetLinkButton } from "@/components/reset-link-button";
@@ -13,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy";
 import { Segmented } from "@/components/ui/segmented";
 import { StatusPill } from "@/components/ui/status-pill";
+import { EditClientButton, RemoveClientButton } from "./client-actions";
 
 /** An agency's view of one client: the same report the client sees, plus access tools. */
 export function ClientView({
@@ -74,20 +76,18 @@ export function ClientView({
             <StatusPill status={client.status} />
           </div>
           <p className="tabular mt-1 text-sm text-ink-soft">
-            {client.googleAdsCustomerId || "No account linked"} · {client.email}
+            {client.googleAdsCustomerId
+              ? formatGoogleAdsCustomerId(client.googleAdsCustomerId)
+              : "No account linked"}{" "}
+            · {client.email}
           </p>
           <p className="mt-0.5 text-sm text-ink-soft">
             {report ? span(report.period.start, report.period.end) : ""}
           </p>
         </div>
 
+        {/* Everything an agency does to the client's account, in one row. */}
         <div className="flex flex-wrap items-center gap-2">
-          <Segmented
-            label="Report period"
-            options={RANGE_OPTIONS}
-            value={state.range}
-            onChange={state.selectRange}
-          />
           {/* What an agency actually needs here: the address to send the client. */}
           <CopyButton
             variant="secondary"
@@ -101,16 +101,29 @@ export function ClientView({
             who={client.name}
             size="nav"
           />
+          <EditClientButton slug={slug} client={client} />
+          <RemoveClientButton slug={slug} client={client} />
         </div>
       </div>
 
-      <div className="mt-4 flex items-center gap-1 border-b border-line">
-        <TabButton label="Overview" active={tab === "overview"} onClick={() => setTab("overview")} />
-        <TabButton
-          label="Campaigns"
-          active={tab === "campaigns"}
-          onClick={() => setTab("campaigns")}
-        />
+      {/* The period belongs with the report it changes, not with the account actions. */}
+      <div className="mt-4 flex flex-wrap items-end justify-between gap-3 border-b border-line">
+        <div className="flex items-center gap-1">
+          <TabButton label="Overview" active={tab === "overview"} onClick={() => setTab("overview")} />
+          <TabButton
+            label="Campaigns"
+            active={tab === "campaigns"}
+            onClick={() => setTab("campaigns")}
+          />
+        </div>
+        <div className="pb-2">
+          <Segmented
+            label="Report period"
+            options={RANGE_OPTIONS}
+            value={state.range}
+            onChange={state.selectRange}
+          />
+        </div>
       </div>
 
       <ReportPanel state={state} tab={tab} />
