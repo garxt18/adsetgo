@@ -125,7 +125,6 @@ app/
   agencies/[slug]/        tenant pages: login, dashboard, clients, client portal
   agencies/new/           master admin creates an agency and gets an invite link
   api/agencies/           agency and client CRUD (authorised per tenant)
-  api/public/agencies/    unauthenticated name lookup, for login screens only
   api/google-ads/         OAuth, account tree, metrics, campaign controls
   api/dev/                local bootstrap helpers, disabled in production
   invite/accept/          where an invitation link lands
@@ -133,7 +132,8 @@ app/
   reset-password/         where a reset link lands (shares the invite screen)
   api/auth/home/          where the signed-in person belongs
 lib/
-  api-auth.ts             requireApiAuth / requireAgencyAccess
+  api-auth.ts             requireApiAuth / requireAgencyAccess / canManageAgency
+  agencies.ts             finds an agency by its address, for pages (server only)
   invites.ts              invitations and admin-issued reset links
   audit.ts                writes sensitive actions to audit_logs
   home-path.ts            asks the server where a signed-in person goes

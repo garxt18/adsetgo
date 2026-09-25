@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { canManageAgency } from "@/lib/api-auth";
+import { findAgency } from "@/lib/agencies";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentProfile } from "@/lib/supabase/server";
 import { PageMessage } from "@/components/ui/card";
@@ -19,9 +20,9 @@ export default async function AgencyClientPage({
 }: PageProps<"/agencies/[slug]/clients/[id]">) {
   const { slug, id } = await params;
 
-  const [profile, { data: agency }] = await Promise.all([
+  const [profile, agency] = await Promise.all([
     getCurrentProfile(),
-    supabaseAdmin.from("agencies").select("id, name").eq("slug", slug).maybeSingle(),
+    findAgency(slug),
   ]);
 
   if (!profile) redirect(`/agencies/${slug}/login`);
