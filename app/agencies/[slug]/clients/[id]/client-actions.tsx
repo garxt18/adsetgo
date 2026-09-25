@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { formatGoogleAdsCustomerId } from "@/lib/google-ads/format";
+import { GoogleAdsAccountPicker } from "@/components/google-ads-accounts";
 import { FormError } from "@/components/ui/auth-shell";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -72,12 +73,10 @@ export function EditClientButton({ slug, client }: { slug: string; client: Clien
 
         <form onSubmit={save} className="space-y-4">
           <Field label="Client name" value={name} onChange={setName} />
-          <Field
-            label="Google Ads customer ID"
+          <GoogleAdsAccountPicker
+            slug={slug}
             value={customerId}
-            onChange={setCustomerId}
-            placeholder="123-456-7890"
-            hint="Ten digits, shown at the top of their Google Ads account."
+            onChange={({ customerId }) => setCustomerId(customerId)}
           />
 
           <div>

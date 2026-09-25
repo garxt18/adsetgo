@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy";
 import { Card } from "@/components/ui/card";
+import { Field } from "@/components/ui/field";
 import { FilterChips } from "@/components/ui/filter-chips";
 import { StatusPill } from "@/components/ui/status-pill";
 
@@ -48,26 +49,15 @@ function groupOf(status: string): Exclude<Group, "all"> {
 
 const digits = (value: string | null | undefined) => (value ?? "").replace(/\D/g, "");
 
-export function GoogleAdsAccounts({
-  slug,
-  connectionStatus,
-  managerCustomerId,
-  clientCustomerIds,
-  onReconnect,
-  onAddClient,
-}: {
-  slug: string;
-  connectionStatus: string | null;
-  managerCustomerId: string | null;
-  /** Accounts already set up as clients, so they are not offered twice. */
-  clientCustomerIds: string[];
-  onReconnect: () => void;
-  onAddClient: (account: { name: string; customerId: string }) => void;
-}) {
+/**
+ * The Google Ads accounts an agency's connection can see, from the accounts
+ * route (cached there for five minutes). Shared by the Google Ads view and the
+ * account picker, so both show the same list from the same request.
+ */
+export function useGoogleAdsAccounts(slug: string) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [state, setState] = useState<"loading" | "ready" | "unavailable">("loading");
   const [message, setMessage] = useState("");
-  const [filter, setFilter] = useState<Group>("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -104,6 +94,28 @@ export function GoogleAdsAccounts({
       cancelled = true;
     };
   }, [slug]);
+
+  return { accounts, state, message };
+}
+
+export function GoogleAdsAccounts({
+  slug,
+  connectionStatus,
+  managerCustomerId,
+  clientCustomerIds,
+  onReconnect,
+  onAddClient,
+}: {
+  slug: string;
+  connectionStatus: string | null;
+  managerCustomerId: string | null;
+  /** Accounts already set up as clients, so they are not offered twice. */
+  clientCustomerIds: string[];
+  onReconnect: () => void;
+  onAddClient: (account: { name: string; customerId: string }) => void;
+}) {
+  const { accounts, state, message } = useGoogleAdsAccounts(slug);
+  const [filter, setFilter] = useState<Group>("all");
 
   const existing = useMemo(() => new Set(clientCustomerIds.map(digits)), [clientCustomerIds]);
 
@@ -288,5 +300,108 @@ function Tag({ label }: { label: string }) {
     <span className="rounded-md bg-surface-sunken px-1.5 py-0.5 text-[11px] font-medium text-ink-soft ring-1 ring-line">
       {label}
     </span>
+  );
+}
+
+const GROUP_LABEL: Record<Exclude<Group, "all">, string> = {
+  active: "Active",
+  suspended: "Suspended",
+  cancelled: "Cancelled",
+  closed: "Closed",
+};
+
+/**
+ * Which Google Ads account a client is, chosen from the accounts the agency's
+ * connection can see instead of typed: a ten-digit id is easy to mistype, and
+ * a mistyped one silently reports on the wrong account or none.
+ *
+ * Manager accounts are left out (they hold accounts, they are never a client).
+ * Accounts that are already clients are listed but cannot be chosen. Without a
+ * connection there is no list, so the id is typed instead.
+ */
+export function GoogleAdsAccountPicker({
+  slug,
+  value,
+  onChange,
+  taken = [],
+}: {
+  slug: string;
+  /** The chosen customer id, in any format. */
+  value: string;
+  /** `name` is the account's name in Google Ads, or null when the id was typed. */
+  onChange: (account: { customerId: string; name: string | null }) => void;
+  /** Customer ids that are already clients. */
+  taken?: string[];
+}) {
+  const { accounts, state } = useGoogleAdsAccounts(slug);
+  const selected = digits(value);
+  const takenIds = new Set(taken.map(digits));
+  const options = accounts
+    .filter((account) => !account.manager)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  if (state === "loading") {
+    return (
+      <div>
+        <p className="mb-1.5 text-sm font-medium text-ink">Google Ads account</p>
+        <p className="rounded-xl bg-surface-sunken px-3.5 py-2.5 text-sm text-ink-soft ring-1 ring-line">
+          Fetching your accounts from Google Ads…
+        </p>
+      </div>
+    );
+  }
+
+  if (state === "unavailable" || options.length === 0) {
+    return (
+      <Field
+        label="Google Ads customer ID"
+        value={value}
+        onChange={(customerId) => onChange({ customerId, name: null })}
+        placeholder="123-456-7890"
+        hint={
+          state === "unavailable"
+            ? "Connect Google Ads to choose from your accounts instead of typing the ID."
+            : "No client accounts were found under your manager account, so type the ID."
+        }
+      />
+    );
+  }
+
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm font-medium text-ink">Google Ads account</span>
+      <select
+        required
+        value={selected}
+        onChange={(event) => {
+          const account = options.find((option) => option.customerId === event.target.value);
+          if (account) onChange({ customerId: account.customerId, name: account.name });
+        }}
+        className="w-full rounded-xl bg-surface px-3.5 py-2.5 text-sm text-ink ring-1 ring-line transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+      >
+        <option value="" disabled>
+          Choose an account
+        </option>
+        {/* A client pointed at an account this connection cannot see still shows as chosen. */}
+        {selected && !options.some((option) => option.customerId === selected) ? (
+          <option value={selected}>{value} (not under your manager account)</option>
+        ) : null}
+        {options.map((account) => {
+          const isTaken = takenIds.has(account.customerId) && account.customerId !== selected;
+          const status = groupOf(account.status);
+
+          return (
+            <option key={account.customerId} value={account.customerId} disabled={isTaken}>
+              {account.name} · {account.formattedCustomerId}
+              {status === "active" ? "" : ` · ${GROUP_LABEL[status]}`}
+              {isTaken ? " · already a client" : ""}
+            </option>
+          );
+        })}
+      </select>
+      <span className="mt-1 block text-xs text-ink-soft">
+        Fetched from your Google Ads manager account.
+      </span>
+    </label>
   );
 }

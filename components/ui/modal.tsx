@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useRef, type ReactNode } from "react";
 
 /**
  * Detail overlay.
@@ -25,11 +25,18 @@ export function Modal({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
 
+  // Read through an effect event so the effect below depends on `open` alone.
+  // Pages pass a fresh `onClose` arrow on every render, and with it in the
+  // dependencies each keystroke in a form re-ran this effect: focus went back
+  // to the button behind the dialog and then to the panel, so every text box
+  // took one letter per click.
+  const close = useEffectEvent(() => onClose());
+
   useEffect(() => {
     if (!open) return;
 
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") close();
     }
 
     document.addEventListener("keydown", onKeyDown);
@@ -46,7 +53,7 @@ export function Modal({
       document.body.style.overflow = overflow;
       previous?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

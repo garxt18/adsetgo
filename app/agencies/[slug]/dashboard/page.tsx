@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { redirectHome } from "@/lib/home-path";
 import { signOut } from "@/lib/sign-out";
 import { AgencyShell } from "@/components/agency-shell";
 import { ClientTable, type ClientRow } from "@/components/client-table";
-import { GoogleAdsAccounts } from "@/components/google-ads-accounts";
+import { GoogleAdsAccountPicker, GoogleAdsAccounts } from "@/components/google-ads-accounts";
 import { Sparkline, type Point } from "@/components/charts";
 import { Button } from "@/components/ui/button";
 import { Card, SampleBanner, StatTile } from "@/components/ui/card";
@@ -55,6 +55,8 @@ export default function AgencyDashboard() {
   const [inviteName, setInviteName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteCustomerId, setInviteCustomerId] = useState("");
+  // The last name filled in from a Google Ads account, to tell it from a typed one.
+  const autoName = useRef("");
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteError, setInviteError] = useState("");
   const [inviteLink, setInviteLink] = useState("");
@@ -219,6 +221,7 @@ export default function AgencyDashboard() {
           onAddClient={({ name, customerId }) => {
             // Start the same invitation flow, with the account already filled in.
             setInviteName(name);
+            autoName.current = name;
             setInviteCustomerId(customerId);
             setInviteEmail("");
             setInviteLink("");
@@ -313,6 +316,22 @@ export default function AgencyDashboard() {
               </p>
             ) : null}
 
+            <GoogleAdsAccountPicker
+              slug={slug}
+              value={inviteCustomerId}
+              taken={clients.map((client) => client.googleAdsCustomerId ?? "")}
+              onChange={({ customerId, name }) => {
+                setInviteCustomerId(customerId);
+                // Name the client after the account, unless a name of their own
+                // has been typed; choosing another account then renames it too.
+                if (name) {
+                  setInviteName((current) =>
+                    !current.trim() || current === autoName.current ? name : current
+                  );
+                  autoName.current = name;
+                }
+              }}
+            />
             <Field label="Client name" value={inviteName} onChange={setInviteName} placeholder="Acme Corporation" />
             <Field
               label="Client email"
@@ -320,13 +339,6 @@ export default function AgencyDashboard() {
               onChange={setInviteEmail}
               placeholder="contact@acme.com"
               type="email"
-            />
-            <Field
-              label="Google Ads customer ID"
-              value={inviteCustomerId}
-              onChange={setInviteCustomerId}
-              placeholder="123-456-7890"
-              hint="Shown at the top of their Google Ads account."
             />
 
             <div className="flex justify-end gap-2">
