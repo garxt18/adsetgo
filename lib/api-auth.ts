@@ -10,7 +10,7 @@ export type ApiAuthResult = ApiAuthSuccess | ApiAuthFailure;
  * Resolve the caller's profile for an API route, optionally restricting to a set
  * of roles. Routes call this first and return `response` when it is non-null.
  *
- * The middleware matcher does not cover /api/*, so every route is responsible for
+ * The proxy (proxy.ts) matcher does not cover /api/*, so every route is responsible for
  * its own authorization; there is no ambient protection to fall back on.
  */
 export async function requireApiAuth(
@@ -39,20 +39,23 @@ export async function requireApiAuth(
 }
 
 /**
- * Confirm the caller may act on a given agency. Master admins may act on any
- * agency; an agency admin only on their own. Clients never manage agencies.
- *
- * Returns null when access is allowed, otherwise the response to return.
+ * Whether this person may act for an agency: a master admin for any agency, an
+ * agency admin only for their own. Clients never manage agencies. Pages use
+ * this directly; API routes go through requireAgencyAccess below.
  */
+export function canManageAgency(profile: AppProfile, agencyId: string): boolean {
+  return (
+    profile.role === "master_admin" ||
+    (profile.role === "agency_admin" && profile.agency_id === agencyId)
+  );
+}
+
+/** The API form of canManageAgency: null when allowed, else the 403 to return. */
 export function requireAgencyAccess(
   profile: AppProfile,
   agencyId: string
 ): NextResponse | null {
-  if (profile.role === "master_admin") {
-    return null;
-  }
-
-  if (profile.role === "agency_admin" && profile.agency_id === agencyId) {
+  if (canManageAgency(profile, agencyId)) {
     return null;
   }
 
@@ -70,11 +73,7 @@ export function requireClientAccess(
   profile: AppProfile,
   client: { id: string; agency_id: string }
 ): NextResponse | null {
-  if (profile.role === "master_admin") {
-    return null;
-  }
-
-  if (profile.role === "agency_admin" && profile.agency_id === client.agency_id) {
+  if (canManageAgency(profile, client.agency_id)) {
     return null;
   }
 

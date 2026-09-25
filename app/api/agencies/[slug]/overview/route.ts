@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireApiAuth, requireAgencyAccess } from "@/lib/api-auth";
-import { fetchGoogleAdsMetrics, getGoogleAdsAccessToken, type GoogleAdsRow } from "@/lib/google-ads/auth";
+import {
+  fetchGoogleAdsMetrics,
+  forgetGoogleAdsAccessToken,
+  getGoogleAdsAccessToken,
+  type GoogleAdsRow,
+} from "@/lib/google-ads/auth";
 import { normalizeGoogleAdsCustomerId } from "@/lib/google-ads/format";
 import { percentChange, resolveRange } from "@/lib/google-ads/date-range";
 import { reportCacheKey, withReportCache } from "@/lib/google-ads/report-cache";
@@ -91,10 +96,12 @@ export async function GET(
   const denied = requireAgencyAccess(profile, agency.id);
   if (denied) return denied;
 
+  const agencyId = agency.id;
+
   const { data: clientRows } = await supabaseAdmin
     .from("clients")
     .select("id, name, email, status, google_ads_customer_id")
-    .eq("agency_id", agency.id)
+    .eq("agency_id", agencyId)
     .order("created_at", { ascending: false });
 
   const clients = (clientRows ?? []) as ClientRow[];
@@ -111,7 +118,7 @@ export async function GET(
 
   if (!useSample && clients.length > 0) {
     try {
-      accessToken = await getGoogleAdsAccessToken({ agencyId: agency.id });
+      accessToken = await getGoogleAdsAccessToken(agencyId);
     } catch (error) {
       connectionError = error instanceof Error ? error.message : "Google Ads is unavailable.";
     }
@@ -154,6 +161,9 @@ export async function GET(
       };
     } catch {
       // One client's account failing must not blank the whole agency's list.
+      // The token is dropped in case Google refused it, so the next load
+      // mints a new one and notices a revoked connection.
+      forgetGoogleAdsAccessToken(agencyId);
       return { client, current: null, previous: null, spendSeries: [] };
     }
   }

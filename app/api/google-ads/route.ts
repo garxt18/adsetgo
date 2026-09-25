@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   fetchGoogleAdsMetrics,
+  forgetGoogleAdsAccessToken,
   getGoogleAdsAccessToken,
   type GoogleAdsRow,
 } from "@/lib/google-ads/auth";
@@ -11,6 +12,7 @@ import { reportCacheKey, withReportCache } from "@/lib/google-ads/report-cache";
 import { buildSampleRows, isSampleDataEnabled } from "@/lib/google-ads/sample-data";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentProfile } from "@/lib/supabase/server";
+import { requireClientAccess } from "@/lib/api-auth";
 
 function summarizeGoogleAdsRows(rows: GoogleAdsRow[]) {
   const metrics = rows.reduce<{
@@ -241,7 +243,6 @@ export async function GET(request: NextRequest) {
   }
 
   const range = resolveRange(request.nextUrl.searchParams.get("dateRange") ?? "last_7_days");
-  const debugMode = request.nextUrl.searchParams.get("debug") === "1";
 
   if (!clientId) {
     return NextResponse.json({ error: "clientId is required" }, { status: 400 });
@@ -257,22 +258,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Client not found." }, { status: 404 });
   }
 
-  // Strict tenant checks
-  if (profile.role === "client" && profile.client_id !== client.id) {
-    return NextResponse.json({ error: "Forbidden. You can only view your own client data." }, { status: 403 });
-  }
-
-  if (profile.role === "agency_admin" && profile.agency_id !== client.agency_id) {
-    return NextResponse.json({ error: "You do not have access to this client." }, { status: 403 });
-  }
+  // Denies unless a rule allows. The inline checks this replaced only refused
+  // the cases they named, so any other role would have been let through.
+  const denied = requireClientAccess(profile, client);
+  if (denied) return denied;
 
   const agency = client.agencies as { id: string; google_ads_manager_customer_id: string | null } | null;
   const customerId = normalizeGoogleAdsCustomerId(client.google_ads_customer_id);
   const managerCustomerId = normalizeGoogleAdsCustomerId(agency?.google_ads_manager_customer_id ?? "");
-
-  if (debugMode) {
-    console.log("[api/google-ads] request", { clientId, customerId, managerCustomerId });
-  }
 
   if (!customerId) {
     return NextResponse.json({
@@ -310,7 +303,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const accessToken = await getGoogleAdsAccessToken({ agencyId: agency?.id });
+    const accessToken = await getGoogleAdsAccessToken(client.agency_id);
 
     const load = (startDate: string, endDate: string) =>
       withReportCache(reportCacheKey([customerId, managerCustomerId, startDate, endDate]), () =>
@@ -340,6 +333,7 @@ export async function GET(request: NextRequest) {
     );
   } catch (error: unknown) {
     console.error("Google Ads metrics fetch failed:", error);
+    forgetGoogleAdsAccessToken(client.agency_id);
     return NextResponse.json({
       status: "error",
       message: error instanceof Error ? error.message : "Google Ads account unavailable.",

@@ -48,16 +48,20 @@ export async function getCurrentProfile(): Promise<AppProfile | null> {
   // checked first, and its cookie lasts a day, so signing in as a client on the
   // same browser still got platform-admin answers from every API route --
   // which hid exactly the permission bugs you sign in as a client to find.
+  //
+  // getClaims checks the session's signature on this server, against signing
+  // keys cached for ten minutes, where getUser asked Supabase on every call.
+  // Whether the person still has access is not taken from the token: the
+  // profile is read fresh below, so a removed account loses access at once.
   const supabase = await getSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data } = await supabase.auth.getClaims();
+  const userId = data?.claims.sub;
 
-  if (user) {
+  if (userId) {
     const { data: profile } = await supabaseAdmin
       .from("profiles")
       .select("*")
-      .eq("id", user.id)
+      .eq("id", userId)
       .maybeSingle();
 
     return (profile as AppProfile | null) ?? null;
@@ -92,18 +96,4 @@ export async function getCurrentProfile(): Promise<AppProfile | null> {
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
-}
-
-export async function requireRole(allowedRoles: AppRole[]) {
-  const profile = await getCurrentProfile();
-
-  if (!profile) {
-    return { profile: null, authorized: false, reason: "unauthenticated" };
-  }
-
-  if (!allowedRoles.includes(profile.role as AppRole)) {
-    return { profile, authorized: false, reason: "forbidden" };
-  }
-
-  return { profile, authorized: true, reason: null };
 }

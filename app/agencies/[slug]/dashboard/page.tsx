@@ -9,10 +9,11 @@ import { ClientTable, type ClientRow } from "@/components/client-table";
 import { GoogleAdsAccounts } from "@/components/google-ads-accounts";
 import { Sparkline, type Point } from "@/components/charts";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Card, SampleBanner } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { Segmented } from "@/components/ui/segmented";
 import { formatCurrency, formatNumber } from "@/lib/format";
+import { RANGE_OPTIONS, span, type Period, type RangeKey } from "@/lib/google-ads/date-range";
 
 type Agency = {
   id: string;
@@ -30,32 +31,6 @@ type Totals = {
   costPerConversion: number;
 };
 
-type Period = {
-  label: string;
-  start: string;
-  end: string;
-  previousStart: string;
-  previousEnd: string;
-};
-
-const DATE_RANGES = [
-  { value: "last_7_days", label: "7 days", short: "7D" },
-  { value: "last_14_days", label: "14 days", short: "14D" },
-  { value: "last_30_days", label: "30 days", short: "30D" },
-  { value: "this_month", label: "This month", short: "MTD" },
-  { value: "last_month", label: "Last month", short: "LM" },
-];
-
-function span(start: string, end: string): string {
-  const from = new Date(start).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-  const to = new Date(end).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-  return `${from} – ${to}`;
-}
-
 export default function AgencyDashboard() {
   const params = useParams();
   const router = useRouter();
@@ -67,7 +42,7 @@ export default function AgencyDashboard() {
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [totals, setTotals] = useState<Totals | null>(null);
   const [period, setPeriod] = useState<Period | null>(null);
-  const [dateRange, setDateRange] = useState("last_7_days");
+  const [dateRange, setDateRange] = useState<RangeKey>("last_7_days");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [isSample, setIsSample] = useState(false);
@@ -209,15 +184,7 @@ export default function AgencyDashboard() {
         </Button>
       }
     >
-      {isSample ? (
-        <div className="animate-fade mb-4 flex items-center gap-2 rounded-xl bg-caution-tint px-4 py-2.5 text-sm text-caution">
-          <span aria-hidden="true">●</span>
-          <span>
-            <strong className="font-medium">Sample data.</strong> These figures are generated
-            for development and are not from Google Ads.
-          </span>
-        </div>
-      ) : null}
+      {isSample ? <SampleBanner className="mb-4" /> : null}
 
       {connectionError ? (
         <div className="animate-fade mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-caution-tint px-4 py-3 text-sm text-caution">
@@ -265,7 +232,7 @@ export default function AgencyDashboard() {
             </div>
             <Segmented
               label="Report period"
-              options={DATE_RANGES}
+              options={RANGE_OPTIONS}
               value={dateRange}
               onChange={setDateRange}
             />

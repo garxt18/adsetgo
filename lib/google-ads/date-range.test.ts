@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { percentChange, resolveRange } from "./date-range.ts";
+import { percentChange, resolveRange, shortDay, span } from "./date-range.ts";
 
 // A fixed "now" so these assertions do not drift with the calendar.
 const NOW = new Date("2026-09-24T09:00:00Z");
@@ -67,4 +67,24 @@ test("percent change is signed and relative to the prior figure", () => {
   assert.equal(percentChange(150, 100), 50);
   assert.equal(percentChange(50, 100), -50);
   assert.equal(percentChange(100, 100), 0);
+});
+
+test("a report day reads the same in every time zone", () => {
+  // Midnight UTC is still the previous evening in New York; the label must
+  // not slip back a day for a reader there.
+  const zone = process.env.TZ;
+  try {
+    for (const tz of ["America/Los_Angeles", "Asia/Kolkata", "Pacific/Auckland"]) {
+      process.env.TZ = tz;
+      assert.equal(shortDay("2026-03-01"), "1 Mar", tz);
+    }
+  } finally {
+    process.env.TZ = zone;
+  }
+});
+
+test("a period reads as a span, with the year only when asked", () => {
+  assert.equal(span("2026-03-01", "2026-03-07"), "1 Mar – 7 Mar 2026");
+  assert.equal(span("2026-03-01", "2026-03-07", false), "1 Mar – 7 Mar");
+  assert.equal(shortDay("not a date"), "not a date");
 });

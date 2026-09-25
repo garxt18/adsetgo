@@ -62,3 +62,37 @@ export function EmptyState({
     </div>
   );
 }
+
+/**
+ * Said instead of a page that cannot be shown -- no access, wrong workspace,
+ * a record that is gone -- so the reader learns why rather than facing a
+ * blank screen.
+ */
+export function PageMessage({ message, action }: { message: string; action?: ReactNode }) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-canvas p-6">
+      <Card className="max-w-md p-6">
+        <p className="text-sm text-ink">{message}</p>
+        {action}
+      </Card>
+    </main>
+  );
+}
+
+/**
+ * Generated figures must announce themselves wherever they appear: a number
+ * that cannot say it is invented has no business on a client's screen.
+ */
+export function SampleBanner({ className = "" }: { className?: string }) {
+  return (
+    <div
+      className={`animate-fade flex items-center gap-2 rounded-xl bg-caution-tint px-4 py-2.5 text-sm text-caution ${className}`}
+    >
+      <span aria-hidden="true">●</span>
+      <span>
+        <strong className="font-medium">Sample data.</strong> These figures are generated for
+        development and are not from Google Ads.
+      </span>
+    </div>
+  );
+}

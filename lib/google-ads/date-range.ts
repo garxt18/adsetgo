@@ -91,3 +91,38 @@ export function percentChange(current: number, previous: number): number | null 
 
   return ((current - previous) / Math.abs(previous)) * 100;
 }
+
+/** The two windows a report covers, as the report API returns them. */
+export type Period = Omit<ResolvedRange, "key">;
+
+/** The period buttons every report screen offers, shortest first. */
+export const RANGE_OPTIONS: Array<{ value: RangeKey; label: string; short: string }> = [
+  { value: "last_7_days", label: "7 days", short: "7D" },
+  { value: "last_14_days", label: "14 days", short: "14D" },
+  { value: "last_30_days", label: "30 days", short: "30D" },
+  { value: "this_month", label: "This month", short: "MTD" },
+  { value: "last_month", label: "Last month", short: "LM" },
+];
+
+// Report dates are calendar days ("2026-09-17"), which JavaScript reads as
+// midnight UTC. Formatted in the viewer's own time zone they showed the day
+// before for anyone west of Greenwich, so they are always formatted in UTC.
+const DAY = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+const DAY_YEAR = new Intl.DateTimeFormat("en-GB", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+/** "18 Sept", for chart axes. Anything unreadable is shown as given. */
+export function shortDay(date: string): string {
+  const parsed = new Date(date);
+  return Number.isNaN(parsed.getTime()) ? date : DAY.format(parsed);
+}
+
+/** "17 Sept – 23 Sept 2026", or without the year where space is short. */
+export function span(start: string, end: string, withYear = true): string {
+  const to = new Date(end);
+  return `${shortDay(start)} – ${withYear && !Number.isNaN(to.getTime()) ? DAY_YEAR.format(to) : shortDay(end)}`;
+}

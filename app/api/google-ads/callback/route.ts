@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { forgetGoogleAdsAccessToken } from "@/lib/google-ads/auth";
 import { verifyAgencyState } from "@/lib/google-ads/state";
 
 export async function GET(request: NextRequest) {
@@ -84,6 +85,10 @@ export async function GET(request: NextRequest) {
           .from("agencies")
           .update(updatePayload)
           .eq("id", agency.id);
+
+        // The agency may have connected a different Google account, so a
+        // token minted from the old connection must not keep answering.
+        forgetGoogleAdsAccessToken(agency.id);
       } catch (err) {
         console.error("Failed to persist agency refresh token:", err);
       }

@@ -3,8 +3,7 @@ import {
   formatGoogleAdsCustomerId,
   normalizeGoogleAdsCustomerId,
 } from "./format.ts";
-
-export type GoogleAdsRole = "master_admin" | "agency_admin" | "client";
+import { forgetCached, reportCacheKey, withReportCache } from "./report-cache.ts";
 
 /**
  * Every Google Ads call goes through this one version. Google sunsets old
@@ -14,10 +13,37 @@ export type GoogleAdsRole = "master_admin" | "agency_admin" | "client";
 export const GOOGLE_ADS_API_VERSION =
   process.env.GOOGLE_ADS_API_VERSION || "v25";
 
-export async function getGoogleAdsAccessToken(options?: {
-  agencyId?: string;
-  refreshToken?: string;
-}): Promise<string> {
+// Google access tokens last an hour. Reusing one for 50 minutes means a
+// report costs one call to Google rather than four round trips (read the
+// refresh token, mint, record the status, then query), and it still leaves ten
+// minutes' margin before Google would refuse it.
+const ACCESS_TOKEN_TTL_MS = 50 * 60 * 1000;
+
+const accessTokenKey = (agencyId: string) => reportCacheKey(["access-token", agencyId]);
+
+/**
+ * A Google Ads access token for one agency, minted from the refresh token that
+ * agency stored when it connected.
+ *
+ * There is no platform-wide fallback token. One used to exist, and an agency
+ * that had never connected silently borrowed it -- so an agency admin could
+ * add any customer id that token could see and read that account's figures.
+ */
+export async function getGoogleAdsAccessToken(agencyId: string): Promise<string> {
+  return withReportCache(accessTokenKey(agencyId), () => mintAccessToken(agencyId), ACCESS_TOKEN_TTL_MS);
+}
+
+/**
+ * Stop using an agency's cached token. Called when the agency reconnects (the
+ * new Google account may differ) and when Google refuses a request, so that
+ * the next attempt mints afresh and a revoked connection is noticed and
+ * marked expired instead of failing quietly until the cache runs out.
+ */
+export function forgetGoogleAdsAccessToken(agencyId: string): void {
+  forgetCached(accessTokenKey(agencyId));
+}
+
+async function mintAccessToken(agencyId: string): Promise<string> {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
@@ -25,30 +51,17 @@ export async function getGoogleAdsAccessToken(options?: {
     throw new Error("Google Ads OAuth client credentials are not configured.");
   }
 
-  // Prefer explicit refreshToken passed in, then per-agency stored token, then global env var
-  let refreshToken = options?.refreshToken ?? null;
+  const { data: agency } = await supabaseAdmin
+    .from("agencies")
+    .select("google_ads_refresh_token")
+    .eq("id", agencyId)
+    .maybeSingle();
 
-  // Look up per-agency stored token from the database
-  if (!refreshToken && options?.agencyId) {
-    const { data: agency } = await supabaseAdmin
-      .from("agencies")
-      .select("google_ads_refresh_token")
-      .eq("id", options.agencyId)
-      .maybeSingle();
-
-    const agencyData = agency as { google_ads_refresh_token?: string | null } | null;
-    refreshToken = agencyData?.google_ads_refresh_token ?? null;
-  }
-
-  // Fall back to global env var only if no agency-specific token
-  if (!refreshToken) {
-    refreshToken = process.env.GOOGLE_ADS_REFRESH_TOKEN ?? null;
-  }
+  const refreshToken = (agency as { google_ads_refresh_token?: string | null } | null)
+    ?.google_ads_refresh_token;
 
   if (!refreshToken) {
-    throw new Error(
-      "Google Ads refresh token is not configured for this agency or globally."
-    );
+    throw new Error("This agency has not connected Google Ads yet.");
   }
 
   const response = await fetch("https://oauth2.googleapis.com/token", {
@@ -75,11 +88,11 @@ export async function getGoogleAdsAccessToken(options?: {
     // Record that on the agency, otherwise the dashboard keeps claiming the
     // connection is healthy while every request fails and nothing prompts the
     // agency to reconnect.
-    if (options?.agencyId && tokenData.error === "invalid_grant") {
+    if (tokenData.error === "invalid_grant") {
       await supabaseAdmin
         .from("agencies")
         .update({ google_ads_connection_status: "expired" })
-        .eq("id", options.agencyId);
+        .eq("id", agencyId);
     }
 
     throw new Error(
@@ -90,13 +103,11 @@ export async function getGoogleAdsAccessToken(options?: {
   }
 
   // A previously expired connection that works again should stop nagging.
-  if (options?.agencyId) {
-    await supabaseAdmin
-      .from("agencies")
-      .update({ google_ads_connection_status: "connected" })
-      .eq("id", options.agencyId)
-      .eq("google_ads_connection_status", "expired");
-  }
+  await supabaseAdmin
+    .from("agencies")
+    .update({ google_ads_connection_status: "connected" })
+    .eq("id", agencyId)
+    .eq("google_ads_connection_status", "expired");
 
   return tokenData.access_token;
 }

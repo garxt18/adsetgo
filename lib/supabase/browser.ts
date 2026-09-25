@@ -10,9 +10,9 @@ const { url: supabaseUrl, key: supabasePublishableKey } =
  *
  * This must be the `@supabase/ssr` browser client rather than the plain
  * `createClient`: that one keeps the session in localStorage, which the server
- * cannot read. The middleware and every API route resolve the caller from
+ * cannot read. The proxy and every API route resolve the caller from
  * cookies, so a localStorage-only session means a person signs in successfully
- * and is then bounced straight back to the login page by the middleware, with
+ * and is then bounced straight back to the login page by the proxy, with
  * no error to explain it.
  */
 export const supabase = createBrowserClient(supabaseUrl, supabasePublishableKey);

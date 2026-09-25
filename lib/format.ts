@@ -31,15 +31,3 @@ export function formatPercent(value: number, digits = 2): string {
   const safe = Number.isFinite(value) ? value : 0;
   return `${safe.toFixed(digits)}%`;
 }
-
-/** Long-form date for report headers: "24 September 2026". */
-export function formatDate(value: string | Date): string {
-  const date = typeof value === "string" ? new Date(value) : value;
-  if (Number.isNaN(date.getTime())) return "—";
-
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(date);
-}

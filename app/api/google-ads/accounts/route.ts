@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   fetchAllGoogleAdsAccounts,
+  forgetGoogleAdsAccessToken,
   getGoogleAdsAccessToken,
   type FullGoogleAdsAccount,
 } from "@/lib/google-ads/auth";
@@ -53,10 +54,7 @@ export async function GET(request: NextRequest) {
   if (denied) return denied;
 
   try {
-    // 1. Get access token
-    const accessToken = await getGoogleAdsAccessToken({
-      agencyId: agency?.id,
-    });
+    const accessToken = await getGoogleAdsAccessToken(agency.id);
 
     // fetchAllGoogleAdsAccounts already asks Google which customers the token
     // can see; asking again here spent a second operation on every load for a
@@ -75,6 +73,7 @@ export async function GET(request: NextRequest) {
       );
     } catch (err) {
       accountsError = err instanceof Error ? err.message : String(err);
+      forgetGoogleAdsAccessToken(agency.id);
     }
 
     const summary = {
@@ -106,6 +105,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("Google Ads account fetch failed:", error);
+    forgetGoogleAdsAccessToken(agency.id);
 
     return NextResponse.json({
       connected: false,

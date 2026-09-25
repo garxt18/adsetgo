@@ -88,6 +88,10 @@ dashboard):
   platform. Reports and the account tree are cached for five minutes
   (`lib/google-ads/report-cache.ts`), but a large agency list is still the first
   limit you will hit.
+- Each agency's access token is reused for 50 minutes rather than minted per
+  request, which took about 600 ms (a database read, a call to Google and a
+  status write). It is dropped whenever the agency reconnects or Google refuses
+  a request, so a revoked connection is still noticed and marked expired.
 
 ## Local setup
 
@@ -138,6 +142,7 @@ lib/
   google-ads/auth.ts      tokens, account tree and metrics queries
   google-ads/format.ts    pure helpers, safe for browser bundles
   google-ads/state.ts     signed OAuth state
+  google-ads/date-range.ts  report periods and their labels, shared by routes and pages
   supabase/browser.ts     cookie-backed client for pages
   supabase/server.ts      request-scoped client, resolves the caller
   supabase/admin.ts       service-role client, server only
@@ -151,9 +156,31 @@ neither the alias nor extensionless paths.
 
 ## Security rules that must not be relaxed
 
-- **Every API route authorises itself.** The middleware matcher covers only
+- **Every API route authorises itself.** The proxy (`proxy.ts`) matcher covers only
   `/dashboard` and `/agencies`, never `/api/*`, so there is no ambient
   protection to inherit.
+- **There is no platform-wide Google Ads token.** Every agency uses the
+  refresh token it stored when it connected, and nothing else. A global
+  `GOOGLE_ADS_REFRESH_TOKEN` fallback used to exist: an agency that had never
+  connected silently borrowed it, so its admin could add any customer id that
+  token could see and read that account's figures.
+- **Sessions are verified locally, access is read fresh.** `proxy.ts` and
+  `getCurrentProfile` check the session with `getClaims()`, which verifies its
+  signature on this server (the project signs with ES256) instead of asking
+  Supabase each time; that took about 210 ms off every API call. The profile
+  is still read from the database on every request, so removing someone's
+  profile or changing their role takes effect immediately. The one trade-off:
+  a stolen access token keeps working until it expires (at most an hour), even
+  after its owner signs out. If the project is ever switched back to a shared
+  (HS256) secret, `getClaims()` quietly falls back to a network call, which is
+  slower but still safe.
+- **A server page checks the profile before it reads tenant data.** The two
+  report pages (`client-dashboard` and `clients/[id]`) settle who is asking on
+  the server and read with the service-role client, which ignores row level
+  security. So each one checks `getCurrentProfile()` and `canManageAgency` (or
+  the client's own id) first, and scopes every query by agency id, before
+  anything is rendered. A page that skips that check shows one tenant's data
+  to another.
 - **Never select `*` from `agencies` into a response.** That table holds
   `google_ads_refresh_token`, a standing credential for the agency's ads.
 - **Nothing that imports `lib/supabase/admin.ts` may be imported by a client

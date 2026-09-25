@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireApiAuth, requireAgencyAccess, requireClientAccess } from "@/lib/api-auth";
+import { requireApiAuth, requireAgencyAccess } from "@/lib/api-auth";
 import { NextResponse } from "next/server";
 
 export async function DELETE(
@@ -53,63 +53,6 @@ export async function DELETE(
       { error: "Failed to delete client" },
       { status: 500 }
     );
-  }
-}
-
-export async function GET(
-  request: Request,
-  context: { params: Promise<{ slug: string; id: string }> }
-) {
-  const { profile, response: authError } = await requireApiAuth();
-  if (authError) return authError;
-
-  try {
-    const { slug, id } = await context.params;
-
-    // Verify agency exists
-    const { data: agencyData, error: agencyError } = await supabaseAdmin
-      .from("agencies")
-      .select("id, slug, google_ads_manager_customer_id")
-      .eq("slug", slug)
-      .maybeSingle();
-
-    if (agencyError || !agencyData) {
-      const debug = request.url.includes("debug=1");
-      const body: Record<string, unknown> = { error: "Agency not found" };
-      if (debug) {
-        body._debug = {
-          slugReceived: slug,
-          agencyQueryError: agencyError?.message ?? null,
-          agencyData,
-        };
-      }
-      return NextResponse.json(body, { status: 404 });
-    }
-
-    const { data: clientData, error: clientError } = await supabaseAdmin
-      .from("clients")
-      .select("*")
-      .eq("id", id)
-      .eq("agency_id", agencyData.id)
-      .maybeSingle();
-
-    if (clientError || !clientData) {
-      const debug = request.url.includes("debug=1");
-      const body: Record<string, unknown> = { error: "Client not found" };
-      if (debug) {
-        body._debug = { clientQueryError: clientError?.message ?? null };
-      }
-      return NextResponse.json(body, { status: 404 });
-    }
-
-    // A client may read its own record; agency staff may read any in their agency.
-    const denied = requireClientAccess(profile, clientData);
-    if (denied) return denied;
-
-    return NextResponse.json(clientData);
-  } catch (error) {
-    console.error("Error fetching client:", error);
-    return NextResponse.json({ error: "Failed to fetch client" }, { status: 500 });
   }
 }
 

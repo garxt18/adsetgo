@@ -8,6 +8,7 @@ import { Card, CardHeader, EmptyState } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { buildAlerts } from "@/lib/insights";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/format";
+import { shortDay } from "@/lib/google-ads/date-range";
 
 export type Campaign = {
   id: string;
@@ -47,13 +48,6 @@ export type TrendRow = {
 export type Changes = Partial<Record<keyof Metrics, number | null>>;
 
 type MetricKey = keyof Metrics;
-
-/** "2026-09-18" reads as "18 Sep" on an axis. */
-function shortDay(date: string): string {
-  const parsed = new Date(date);
-  if (Number.isNaN(parsed.getTime())) return date;
-  return parsed.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-}
 
 const MEASURES: Record<
   MetricKey,
