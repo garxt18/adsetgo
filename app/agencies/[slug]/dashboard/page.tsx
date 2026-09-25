@@ -9,7 +9,9 @@ import { ClientTable, type ClientRow } from "@/components/client-table";
 import { GoogleAdsAccounts } from "@/components/google-ads-accounts";
 import { Sparkline, type Point } from "@/components/charts";
 import { Button } from "@/components/ui/button";
-import { Card, SampleBanner } from "@/components/ui/card";
+import { Card, SampleBanner, StatTile } from "@/components/ui/card";
+import { CopyField } from "@/components/ui/copy";
+import { Field } from "@/components/ui/field";
 import { Modal } from "@/components/ui/modal";
 import { Segmented } from "@/components/ui/segmented";
 import { formatCurrency, formatNumber } from "@/lib/format";
@@ -55,7 +57,6 @@ export default function AgencyDashboard() {
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteError, setInviteError] = useState("");
   const [inviteLink, setInviteLink] = useState("");
-  const [copied, setCopied] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
@@ -217,7 +218,6 @@ export default function AgencyDashboard() {
             setInviteEmail("");
             setInviteLink("");
             setInviteError("");
-            setCopied(false);
             setShowInvite(true);
           }}
         />
@@ -239,21 +239,23 @@ export default function AgencyDashboard() {
           </div>
 
           <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <SummaryTile
+            <StatTile
               label="Clients"
               value={formatNumber(clients.length)}
               caption={`${clients.filter((c) => c.status === "active").length} active`}
             />
-            <SummaryTile
-              label="Ad spend"
-              value={totals ? formatCurrency(totals.cost) : "—"}
-              points={spendSeries}
-            />
-            <SummaryTile
+            <StatTile label="Ad spend" value={totals ? formatCurrency(totals.cost) : "—"}>
+              {spendSeries.length > 1 ? (
+                <div className="mt-2">
+                  <Sparkline points={spendSeries} height={26} />
+                </div>
+              ) : null}
+            </StatTile>
+            <StatTile
               label="Conversions"
               value={totals ? formatNumber(totals.conversions) : "—"}
             />
-            <SummaryTile
+            <StatTile
               label="Cost per conversion"
               value={
                 totals && totals.conversions > 0
@@ -269,7 +271,6 @@ export default function AgencyDashboard() {
             onInvite={() => {
               setInviteLink("");
               setInviteError("");
-              setCopied(false);
               setShowInvite(true);
             }}
           />
@@ -288,21 +289,7 @@ export default function AgencyDashboard() {
       >
         {inviteLink ? (
           <div>
-            <div className="flex gap-2">
-              <input
-                readOnly
-                value={inviteLink}
-                className="w-full rounded-xl bg-surface-sunken px-3 py-2.5 text-sm text-ink ring-1 ring-line"
-              />
-              <Button
-                onClick={() => {
-                  navigator.clipboard.writeText(inviteLink);
-                  setCopied(true);
-                }}
-              >
-                {copied ? "Copied" : "Copy"}
-              </Button>
-            </div>
+            <CopyField value={inviteLink} label="Client invitation link" />
             <p className="mt-3 text-xs text-ink-soft">
               The link works once, and only for the address you entered. If it expires, add
               the client again to issue a new one.
@@ -349,61 +336,5 @@ export default function AgencyDashboard() {
         )}
       </Modal>
     </AgencyShell>
-  );
-}
-
-function SummaryTile({
-  label,
-  value,
-  caption,
-  points,
-}: {
-  label: string;
-  value: string;
-  caption?: string;
-  points?: Point[];
-}) {
-  return (
-    <div className="animate-rise rounded-2xl bg-surface px-4 py-3.5 ring-1 ring-line">
-      <p className="text-xs font-medium uppercase tracking-[0.12em] text-ink-faint">{label}</p>
-      <p className="tabular mt-1.5 text-2xl font-medium tracking-[-0.02em] text-ink">{value}</p>
-      {caption ? <p className="mt-0.5 text-xs text-ink-soft">{caption}</p> : null}
-      {points && points.length > 1 ? (
-        <div className="mt-2">
-          <Sparkline points={points} height={26} />
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  placeholder,
-  type = "text",
-  hint,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  type?: string;
-  hint?: string;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-sm font-medium text-ink">{label}</span>
-      <input
-        required
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-xl bg-surface px-3.5 py-2.5 text-sm text-ink ring-1 ring-line transition placeholder:text-ink-faint focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-      />
-      {hint ? <span className="mt-1 block text-xs text-ink-soft">{hint}</span> : null}
-    </label>
   );
 }

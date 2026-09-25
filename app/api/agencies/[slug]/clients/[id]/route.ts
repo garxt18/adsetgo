@@ -1,105 +1,82 @@
-import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireApiAuth, requireAgencyAccess } from "@/lib/api-auth";
 import { NextResponse } from "next/server";
 
-export async function DELETE(
-  _request: Request,
-  context: { params: Promise<{ slug: string; id: string }> }
-) {
-  const { profile, response: authError } = await requireApiAuth([
-    "master_admin",
-    "agency_admin",
-  ]);
-  if (authError) return authError;
+import { requireAgency } from "@/lib/api-auth";
+import { deleteLogins, loginsBelongingTo } from "@/lib/invites";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
-  try {
-    const { slug, id } = await context.params;
+type Ctx = RouteContext<"/api/agencies/[slug]/clients/[id]">;
 
-    // Verify agency exists
-    const { data: agencyData, error: agencyError } = await supabaseAdmin
-      .from("agencies")
-      .select("id")
-      .eq("slug", slug)
-      .maybeSingle();
+/**
+ * Removes one of the agency's clients and that client's login. Scoped to the
+ * agency in the URL as well as the id, so a client id from another agency
+ * cannot be reached through it.
+ */
+export async function DELETE(_request: Request, ctx: Ctx) {
+  const { slug, id } = await ctx.params;
+  const { agency, response } = await requireAgency(slug, ["master_admin", "agency_admin"]);
+  if (response) return response;
 
-    if (agencyError || !agencyData) {
-      return NextResponse.json(
-        { error: "Agency not found" },
-        { status: 404 }
-      );
-    }
+  const { data: client } = await supabaseAdmin
+    .from("clients")
+    .select("id")
+    .eq("id", id)
+    .eq("agency_id", agency.id)
+    .maybeSingle();
 
-    const denied = requireAgencyAccess(profile, agencyData.id);
-    if (denied) return denied;
-
-    // Delete client
-    const { error: deleteError } = await supabaseAdmin
-      .from("clients")
-      .delete()
-      .eq("id", id)
-      .eq("agency_id", agencyData.id);
-
-    if (deleteError) {
-      return NextResponse.json(
-        { error: deleteError.message },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Error deleting client:", error);
-    return NextResponse.json(
-      { error: "Failed to delete client" },
-      { status: 500 }
-    );
+  if (!client) {
+    return NextResponse.json({ error: "Client not found." }, { status: 404 });
   }
+
+  const logins = await loginsBelongingTo({ agencyId: agency.id, clientId: client.id });
+
+  const { error } = await supabaseAdmin.from("clients").delete().eq("id", client.id);
+
+  if (error) {
+    console.error("Client delete failed:", error);
+    return NextResponse.json({ error: "The client could not be removed." }, { status: 500 });
+  }
+
+  const { removed, failed } = await deleteLogins(logins);
+
+  return NextResponse.json({ success: true, loginsRemoved: removed, loginsFailed: failed });
 }
 
-export async function PATCH(
-  request: Request,
-  context: { params: Promise<{ slug: string; id: string }> }
-) {
-  const { profile, response: authError } = await requireApiAuth([
-    "master_admin",
-    "agency_admin",
-  ]);
-  if (authError) return authError;
+/** Edits a client's name, email or Google Ads account. Nothing else is writable here. */
+export async function PATCH(request: Request, ctx: Ctx) {
+  const { slug, id } = await ctx.params;
+  const { agency, response } = await requireAgency(slug, ["master_admin", "agency_admin"]);
+  if (response) return response;
 
-  try {
-    const { slug, id } = await context.params;
-    const body = await request.json();
-    const { name, email, google_ads_customer_id } = body;
+  const body = await request.json().catch(() => null);
 
-    // Verify agency
-    const { data: agencyData, error: agencyError } = await supabaseAdmin
-      .from("agencies")
-      .select("id")
-      .eq("slug", slug)
-      .maybeSingle();
+  // Only named fields, and only strings: anything else in the body is ignored,
+  // so a request cannot move a client to another agency or rewrite its status.
+  const changes = Object.fromEntries(
+    (["name", "email", "google_ads_customer_id"] as const)
+      .filter((key) => typeof body?.[key] === "string" && body[key].trim())
+      .map((key) => [key, body[key].trim()])
+  );
 
-    if (agencyError || !agencyData) {
-      return NextResponse.json({ error: "Agency not found" }, { status: 404 });
-    }
-
-    const denied = requireAgencyAccess(profile, agencyData.id);
-    if (denied) return denied;
-
-    const { data: updatedClient, error: updateError } = await supabaseAdmin
-      .from("clients")
-      .update({ name, email, google_ads_customer_id })
-      .eq("id", id)
-      .eq("agency_id", agencyData.id)
-      .select()
-      .maybeSingle();
-
-    if (updateError) {
-      return NextResponse.json({ error: updateError.message }, { status: 500 });
-    }
-
-    return NextResponse.json(updatedClient);
-  } catch (err) {
-    console.error("Error updating client:", err);
-    return NextResponse.json({ error: "Failed to update client" }, { status: 500 });
+  if (Object.keys(changes).length === 0) {
+    return NextResponse.json({ error: "Nothing to change." }, { status: 400 });
   }
+
+  const { data: client, error } = await supabaseAdmin
+    .from("clients")
+    .update(changes)
+    .eq("id", id)
+    .eq("agency_id", agency.id)
+    .select("id, name, email, status, google_ads_customer_id")
+    .maybeSingle();
+
+  if (error) {
+    console.error("Client update failed:", error);
+    return NextResponse.json({ error: "The client could not be updated." }, { status: 500 });
+  }
+
+  if (!client) {
+    return NextResponse.json({ error: "Client not found." }, { status: 404 });
+  }
+
+  return NextResponse.json(client);
 }

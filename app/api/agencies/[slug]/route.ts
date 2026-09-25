@@ -1,51 +1,43 @@
-import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireApiAuth } from "@/lib/api-auth";
 import { NextResponse } from "next/server";
 
-export async function DELETE(
-  _request: Request,
-  { params }: { params: Promise<{ slug: string }> }
-) {
-  // Deleting an agency cascades to its clients, so it stays master-admin only.
-  const { response: authError } = await requireApiAuth(["master_admin"]);
-  if (authError) return authError;
+import { requireAgency } from "@/lib/api-auth";
+import { recordAudit } from "@/lib/audit";
+import { deleteLogins, loginsBelongingTo } from "@/lib/invites";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
-  try {
-    const { slug } = await params;
+/**
+ * Removes an agency, its clients (the foreign key cascades) and the logins of
+ * its owner and clients. Platform admins only.
+ */
+export async function DELETE(_request: Request, ctx: RouteContext<"/api/agencies/[slug]">) {
+  const { profile, agency, response } = await requireAgency((await ctx.params).slug, [
+    "master_admin",
+  ]);
+  if (response) return response;
 
-    // Find agency by slug
-    const { data: agencyData, error: agencyError } = await supabaseAdmin
-      .from("agencies")
-      .select("id")
-      .eq("slug", slug)
-      .maybeSingle();
+  // Whose logins these are must be read first: deleting the agency clears the
+  // agency_id on their profiles, after which nothing says whose they were.
+  const logins = await loginsBelongingTo({ agencyId: agency.id });
 
-    if (agencyError || !agencyData) {
-      return NextResponse.json(
-        { error: "Agency not found" },
-        { status: 404 }
-      );
-    }
+  const { error } = await supabaseAdmin.from("agencies").delete().eq("id", agency.id);
 
-    // Delete agency by id
-    const { error } = await supabaseAdmin
-      .from("agencies")
-      .delete()
-      .eq("id", agencyData.id);
-
-    if (error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Error deleting agency by slug:", error);
-    return NextResponse.json(
-      { error: "Failed to delete agency" },
-      { status: 500 }
-    );
+  if (error) {
+    // The database's own message stays in the server log; it describes the
+    // schema, which is nobody's business in a browser.
+    console.error("Agency delete failed:", error);
+    return NextResponse.json({ error: "The agency could not be removed." }, { status: 500 });
   }
+
+  const { removed, failed } = await deleteLogins(logins);
+
+  // Platform-level, because the agency's own entries were deleted with it.
+  await recordAudit({
+    agencyId: null,
+    actorId: profile.id,
+    action: "agency_removed",
+    resourceType: "agency",
+    resourceId: agency.slug,
+  });
+
+  return NextResponse.json({ success: true, loginsRemoved: removed, loginsFailed: failed });
 }

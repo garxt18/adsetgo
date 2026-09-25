@@ -15,12 +15,16 @@ export async function recordAudit({
   actorId,
   action,
   resourceType,
+  resourceId,
 }: {
-  agencyId: string;
+  /** Null for a platform-level entry, such as removing an agency. */
+  agencyId: string | null;
   clientId?: string;
   actorId: string;
   action: string;
   resourceType: string;
+  /** What was acted on, when the row itself is about to disappear. */
+  resourceId?: string;
 }) {
   try {
     await supabaseAdmin.from("audit_logs").insert({
@@ -29,6 +33,7 @@ export async function recordAudit({
       user_id: UUID.test(actorId) ? actorId : null,
       action,
       resource_type: resourceType,
+      resource_id: resourceId ?? null,
     });
   } catch (error) {
     console.error("Could not write audit log entry:", error);

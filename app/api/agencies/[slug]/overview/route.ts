@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireApiAuth, requireAgencyAccess } from "@/lib/api-auth";
+import { requireAgency } from "@/lib/api-auth";
 import {
-  fetchGoogleAdsMetrics,
+  fetchReportRows,
   forgetGoogleAdsAccessToken,
   getGoogleAdsAccessToken,
-  type GoogleAdsRow,
 } from "@/lib/google-ads/auth";
 import { normalizeGoogleAdsCustomerId } from "@/lib/google-ads/format";
-import { percentChange, resolveRange } from "@/lib/google-ads/date-range";
-import { reportCacheKey, withReportCache } from "@/lib/google-ads/report-cache";
-import { buildSampleRows, isSampleDataEnabled } from "@/lib/google-ads/sample-data";
+import { percentChange, periodOf, resolveRange } from "@/lib/google-ads/date-range";
+import { groupByDay, summarize } from "@/lib/google-ads/report";
+import { isSampleDataEnabled } from "@/lib/google-ads/sample-data";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 /**
@@ -35,66 +34,15 @@ type ClientRow = {
   google_ads_customer_id: string | null;
 };
 
-function summarise(rows: GoogleAdsRow[]) {
-  let impressions = 0;
-  let clicks = 0;
-  let cost = 0;
-  let conversions = 0;
-
-  for (const row of rows) {
-    impressions += Number(row.metrics?.impressions ?? 0);
-    clicks += Number(row.metrics?.clicks ?? 0);
-    cost += Number(row.metrics?.cost_micros ?? 0) / 1_000_000;
-    conversions += Number(row.metrics?.conversions ?? 0);
-  }
-
-  return {
-    impressions: Math.round(impressions),
-    clicks: Math.round(clicks),
-    cost: Number(cost.toFixed(2)),
-    conversions: Math.round(conversions),
-    costPerConversion: conversions > 0 ? Number((cost / conversions).toFixed(2)) : 0,
-  };
-}
-
-function dailySpend(rows: GoogleAdsRow[]) {
-  const byDate = new Map<string, number>();
-
-  for (const row of rows) {
-    const date = row.segments?.date ?? "";
-    if (!date) continue;
-    byDate.set(date, (byDate.get(date) ?? 0) + Number(row.metrics?.cost_micros ?? 0) / 1_000_000);
-  }
-
-  return Array.from(byDate.entries())
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([date, value]) => ({ label: date, value: Number(value.toFixed(2)) }));
-}
-
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
+  ctx: RouteContext<"/api/agencies/[slug]/overview">
 ) {
-  const { profile, response: authError } = await requireApiAuth([
+  const { agency, response } = await requireAgency((await ctx.params).slug, [
     "master_admin",
     "agency_admin",
   ]);
-  if (authError) return authError;
-
-  const { slug } = await params;
-
-  const { data: agency } = await supabaseAdmin
-    .from("agencies")
-    .select("id, name, slug, google_ads_manager_customer_id, google_ads_connection_status")
-    .eq("slug", slug)
-    .maybeSingle();
-
-  if (!agency) {
-    return NextResponse.json({ error: "Agency not found." }, { status: 404 });
-  }
-
-  const denied = requireAgencyAccess(profile, agency.id);
-  if (denied) return denied;
+  if (response) return response;
 
   const agencyId = agency.id;
 
@@ -107,64 +55,51 @@ export async function GET(
   const clients = (clientRows ?? []) as ClientRow[];
   const range = resolveRange(request.nextUrl.searchParams.get("dateRange") ?? "last_7_days");
   const useSample = isSampleDataEnabled();
-  const managerCustomerId = normalizeGoogleAdsCustomerId(
-    agency.google_ads_manager_customer_id ?? ""
-  );
+  const managerCustomerId = normalizeGoogleAdsCustomerId(agency.google_ads_manager_customer_id);
 
-  // Without a connection there are no figures to report, but the list of
-  // clients is still the agency's own and should render.
-  let accessToken: string | null = null;
+  // Asked once up front, so a broken connection is reported as one banner
+  // rather than as every client quietly showing no figures. The token is
+  // cached, so the per-client loads below reuse it.
   let connectionError: string | null = null;
 
   if (!useSample && clients.length > 0) {
     try {
-      accessToken = await getGoogleAdsAccessToken(agencyId);
+      await getGoogleAdsAccessToken(agencyId);
     } catch (error) {
       connectionError = error instanceof Error ? error.message : "Google Ads is unavailable.";
     }
   }
 
   async function loadClient(client: ClientRow) {
-    const customerId = normalizeGoogleAdsCustomerId(client.google_ads_customer_id ?? "");
+    const customerId = normalizeGoogleAdsCustomerId(client.google_ads_customer_id);
+    const empty = { client, current: null, previous: null, spendSeries: [] };
 
-    if (!customerId || (!useSample && !accessToken)) {
-      return { client, current: null, previous: null, spendSeries: [] };
-    }
-
-    const fetchWindow = async (startDate: string, endDate: string) => {
-      if (useSample) return buildSampleRows({ customerId, startDate, endDate });
-
-      return withReportCache(
-        reportCacheKey([customerId, managerCustomerId, startDate, endDate]),
-        () =>
-          fetchGoogleAdsMetrics({
-            clientCustomerId: customerId,
-            managerCustomerId,
-            startDate,
-            endDate,
-            accessToken: accessToken as string,
-          })
-      );
-    };
+    if (!customerId || connectionError) return empty;
 
     try {
-      const [rows, previousRows] = await Promise.all([
-        fetchWindow(range.start, range.end),
-        fetchWindow(range.previousStart, range.previousEnd),
-      ]);
+      const [rows, previousRows] = await fetchReportRows({
+        agencyId,
+        customerId,
+        managerCustomerId,
+        range,
+      });
+
+      // Only what the client list shows; the full report is a click away.
+      const { impressions, clicks, cost, conversions, costPerConversion } = summarize(rows);
+      const previous = summarize(previousRows);
 
       return {
         client,
-        current: summarise(rows as GoogleAdsRow[]),
-        previous: summarise(previousRows as GoogleAdsRow[]),
-        spendSeries: dailySpend(rows as GoogleAdsRow[]),
+        current: { impressions, clicks, cost, conversions, costPerConversion },
+        previous,
+        spendSeries: groupByDay(rows).map((day) => ({ label: day.date, value: day.cost })),
       };
     } catch {
       // One client's account failing must not blank the whole agency's list.
       // The token is dropped in case Google refused it, so the next load
       // mints a new one and notices a revoked connection.
       forgetGoogleAdsAccessToken(agencyId);
-      return { client, current: null, previous: null, spendSeries: [] };
+      return empty;
     }
   }
 
@@ -208,13 +143,7 @@ export async function GET(
       connectionStatus: agency.google_ads_connection_status,
       managerCustomerId: agency.google_ads_manager_customer_id,
     },
-    period: {
-      label: range.label,
-      start: range.start,
-      end: range.end,
-      previousStart: range.previousStart,
-      previousEnd: range.previousEnd,
-    },
+    period: periodOf(range),
     clients: rows,
     totals: {
       ...totals,

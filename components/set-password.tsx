@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import { supabase } from "@/lib/supabase/browser";
 import { homePathFor } from "@/lib/home-path";
-import { AuthShell, Field, FormError } from "@/components/ui/auth-shell";
+import { AuthShell, FormError } from "@/components/ui/auth-shell";
+import { Field } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 
 /**

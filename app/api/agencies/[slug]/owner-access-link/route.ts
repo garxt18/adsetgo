@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { requireApiAuth } from "@/lib/api-auth";
+import { requireAgency } from "@/lib/api-auth";
 import { createAccessLink, resolveAppOrigin } from "@/lib/invites";
 import { recordAudit } from "@/lib/audit";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -12,22 +12,12 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
  */
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ slug: string }> }
+  ctx: RouteContext<"/api/agencies/[slug]/owner-access-link">
 ) {
-  const { profile, response: authError } = await requireApiAuth(["master_admin"]);
-  if (authError) return authError;
-
-  const { slug } = await params;
-
-  const { data: agency } = await supabaseAdmin
-    .from("agencies")
-    .select("id")
-    .eq("slug", slug)
-    .maybeSingle();
-
-  if (!agency) {
-    return NextResponse.json({ error: "Agency not found." }, { status: 404 });
-  }
+  const { profile, agency, response } = await requireAgency((await ctx.params).slug, [
+    "master_admin",
+  ]);
+  if (response) return response;
 
   const { data: owner } = await supabaseAdmin
     .from("profiles")

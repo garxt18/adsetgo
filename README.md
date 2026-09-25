@@ -78,6 +78,20 @@ dashboard):
    `{{ .SiteURL }}/reset-password?token_hash={{ .TokenHash }}&type=recovery`
    makes it work on any device; `/reset-password` accepts both forms.
 
+## Removing an agency or client deletes their logins
+
+Deleting an agency deletes its clients (the foreign key cascades) and then the
+Supabase logins of its owner and every client; deleting a client deletes that
+client's login. Left behind, a login could not reach any data, but it kept its
+email address taken, so the same person could never be invited again.
+
+The logins are worked out *before* the row goes (`loginsBelongingTo` in
+`lib/invites.ts`), because deleting an agency clears `agency_id` on its
+profiles and nothing afterwards says whose they were. Only agency admins and
+clients are ever deleted this way, never a platform admin. The removal of an
+agency is audited at platform level (`agency_id` null), since the agency's own
+audit entries are deleted with it.
+
 ## Google Ads API notes
 
 - The API version lives in exactly one place, `GOOGLE_ADS_API_VERSION` in
@@ -140,6 +154,7 @@ lib/
   safe-return.ts          keeps back links on this site
   dev-only-env.ts         refuses deployments carrying dev-login variables
   google-ads/auth.ts      tokens, account tree and metrics queries
+  google-ads/report.ts    the report arithmetic, shared by every figure on screen
   google-ads/format.ts    pure helpers, safe for browser bundles
   google-ads/state.ts     signed OAuth state
   google-ads/date-range.ts  report periods and their labels, shared by routes and pages

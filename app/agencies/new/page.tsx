@@ -5,6 +5,8 @@ import { useState } from "react";
 import { sanitizeAgencySlug } from "@/lib/google-ads/format";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { CopyField } from "@/components/ui/copy";
+import { Field } from "@/components/ui/field";
 import { BrandLockup } from "@/components/ui/brand";
 import { ThemeToggle } from "@/components/ui/theme";
 import { TopBar, TopBarLink } from "@/components/ui/top-bar";
@@ -17,7 +19,6 @@ export default function NewAgencyPage() {
   const [mccId, setMccId] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
   const [createdAgency, setCreatedAgency] = useState<{
     id: string;
     slug: string;
@@ -107,20 +108,8 @@ export default function NewAgencyPage() {
 
               {createdAgency.inviteLink ? (
                 <>
-                  <div className="mt-4 flex gap-2">
-                    <input
-                      readOnly
-                      value={createdAgency.inviteLink}
-                      className="w-full rounded-xl bg-surface-sunken px-3 py-2.5 text-sm text-ink ring-1 ring-line"
-                    />
-                    <Button
-                      onClick={() => {
-                        navigator.clipboard.writeText(createdAgency.inviteLink ?? "");
-                        setCopied(true);
-                      }}
-                    >
-                      {copied ? "Copied" : "Copy"}
-                    </Button>
+                  <div className="mt-4">
+                    <CopyField value={createdAgency.inviteLink} label="Owner invitation link" />
                   </div>
                   <p className="mt-3 text-xs text-ink-faint">
                     Afterwards they sign in at /agencies/{createdAgency.slug}/login
@@ -150,7 +139,6 @@ export default function NewAgencyPage() {
                 variant="secondary"
                 onClick={() => {
                   setCreatedAgency(null);
-                  setCopied(false);
                   setAgencyName("");
                   setAgencySlug("");
                   setOwnerName("");
@@ -240,38 +228,5 @@ export default function NewAgencyPage() {
         )}
       </main>
     </div>
-  );
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  placeholder,
-  hint,
-  type = "text",
-  required = true,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  hint?: string;
-  type?: string;
-  required?: boolean;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-sm font-medium text-ink">{label}</span>
-      <input
-        type={type}
-        required={required}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-xl bg-surface px-3.5 py-2.5 text-sm text-ink ring-1 ring-line transition placeholder:text-ink-faint focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-      />
-      {hint ? <span className="mt-1 block truncate text-xs text-ink-soft">{hint}</span> : null}
-    </label>
   );
 }

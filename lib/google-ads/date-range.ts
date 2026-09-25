@@ -95,6 +95,10 @@ export function percentChange(current: number, previous: number): number | null 
 /** The two windows a report covers, as the report API returns them. */
 export type Period = Omit<ResolvedRange, "key">;
 
+export function periodOf({ label, start, end, previousStart, previousEnd }: ResolvedRange): Period {
+  return { label, start, end, previousStart, previousEnd };
+}
+
 /** The period buttons every report screen offers, shortest first. */
 export const RANGE_OPTIONS: Array<{ value: RangeKey; label: string; short: string }> = [
   { value: "last_7_days", label: "7 days", short: "7D" },

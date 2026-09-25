@@ -1,52 +1,29 @@
-import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireApiAuth, requireAgencyAccess } from "@/lib/api-auth";
-import { createInvite, resolveAppOrigin } from "@/lib/invites";
 import { NextResponse } from "next/server";
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ slug: string }> }
-) {
-  const { profile, response: authError } = await requireApiAuth([
+import { requireAgency } from "@/lib/api-auth";
+import { createInvite, resolveAppOrigin } from "@/lib/invites";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+
+/** Adds a client to an agency and returns a single-use invitation link for them. */
+export async function POST(request: Request, ctx: RouteContext<"/api/agencies/[slug]/clients">) {
+  const { agency, response } = await requireAgency((await ctx.params).slug, [
     "master_admin",
     "agency_admin",
   ]);
-  if (authError) return authError;
+  if (response) return response;
 
   try {
-    const { slug } = await params;
-    const body = await request.json();
-    const { name, email, google_ads_customer_id } = body;
+    const { name, email, google_ads_customer_id } = await request.json();
 
     if (!name || !email || !google_ads_customer_id) {
-      return NextResponse.json(
-        { error: "Missing required fields" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
-
-    // Get agency by slug
-    const { data: agencyData, error: agencyError } = await supabaseAdmin
-      .from("agencies")
-      .select("id")
-      .eq("slug", slug)
-      .maybeSingle();
-
-    if (agencyError || !agencyData) {
-      return NextResponse.json(
-        { error: "Agency not found" },
-        { status: 404 }
-      );
-    }
-
-    const denied = requireAgencyAccess(profile, agencyData.id);
-    if (denied) return denied;
 
     // Create client
     const { data: newClient, error: clientError } = await supabaseAdmin
       .from("clients")
       .insert({
-        agency_id: agencyData.id,
+        agency_id: agency.id,
         name,
         email,
         google_ads_customer_id,
@@ -56,9 +33,17 @@ export async function POST(
       .maybeSingle();
 
     if (clientError) {
+      // The one failure worth naming: the same Google Ads account twice.
+      const duplicate = clientError.code === "23505";
+      if (!duplicate) console.error("Client insert failed:", clientError);
+
       return NextResponse.json(
-        { error: clientError.message },
-        { status: 500 }
+        {
+          error: duplicate
+            ? "That Google Ads account is already a client of this agency."
+            : "The client could not be added.",
+        },
+        { status: duplicate ? 409 : 500 }
       );
     }
 
@@ -72,7 +57,7 @@ export async function POST(
     const invite = await createInvite({
       email,
       role: "client",
-      agencyId: agencyData.id,
+      agencyId: agency.id,
       clientId: newClient.id,
       origin: resolveAppOrigin(request),
     });

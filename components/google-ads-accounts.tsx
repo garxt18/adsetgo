@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy";
 import { Card } from "@/components/ui/card";
 import { FilterChips } from "@/components/ui/filter-chips";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -67,7 +68,6 @@ export function GoogleAdsAccounts({
   const [state, setState] = useState<"loading" | "ready" | "unavailable">("loading");
   const [message, setMessage] = useState("");
   const [filter, setFilter] = useState<Group>("all");
-  const [copied, setCopied] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -241,16 +241,12 @@ export function GoogleAdsAccounts({
                           </td>
                           <td className="px-5 py-3">
                             <div className="flex justify-end gap-2">
-                              <Button
+                              <CopyButton
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => {
-                                  navigator.clipboard.writeText(account.formattedCustomerId);
-                                  setCopied(account.customerId);
-                                }}
-                              >
-                                {copied === account.customerId ? "Copied" : "Copy ID"}
-                              </Button>
+                                label="Copy ID"
+                                text={account.formattedCustomerId}
+                              />
 
                               {/* A manager account holds other accounts; it is never a client. */}
                               {account.manager ? null : isClient ? (

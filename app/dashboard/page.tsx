@@ -7,7 +7,8 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/browser";
 import { signOut } from "@/lib/sign-out";
 import { Button, ButtonLink } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Card, StatTile } from "@/components/ui/card";
+import { CopyButton } from "@/components/ui/copy";
 import { Modal } from "@/components/ui/modal";
 import { StatusPill } from "@/components/ui/status-pill";
 import { ResetLinkButton } from "@/components/reset-link-button";
@@ -44,8 +45,8 @@ export default function MasterDashboard() {
   const [query, setQuery] = useState("");
   const [pendingDelete, setPendingDelete] = useState<Agency | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<AgencyFilter>("all");
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -149,6 +150,16 @@ export default function MasterDashboard() {
         return;
       }
 
+      const data = await res.json().catch(() => ({}));
+
+      // The agency is gone either way; say so if some logins were left behind,
+      // since they keep those email addresses from being invited again.
+      if (data.loginsFailed > 0) {
+        setNotice(
+          `${pendingDelete.name} was removed, but ${data.loginsFailed} login${data.loginsFailed === 1 ? "" : "s"} could not be deleted. Remove ${data.loginsFailed === 1 ? "it" : "them"} in Supabase under Authentication, Users.`
+        );
+      }
+
       setAgencies((current) => current.filter((a) => a.slug !== pendingDelete.slug));
       setPendingDelete(null);
     } finally {
@@ -159,11 +170,6 @@ export default function MasterDashboard() {
   async function handleLogout() {
     await signOut();
     router.push("/login");
-  }
-
-  function copyLoginLink(agency: Agency) {
-    navigator.clipboard.writeText(`${window.location.origin}/agencies/${agency.slug}/login`);
-    setCopiedSlug(agency.slug);
   }
 
   if (loading) {
@@ -228,11 +234,17 @@ export default function MasterDashboard() {
           </p>
         ) : null}
 
+        {notice ? (
+          <p className="mt-4 rounded-xl bg-caution-tint px-4 py-2.5 text-sm text-caution">
+            {notice}
+          </p>
+        ) : null}
+
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Tile label="Agencies" value={formatNumber(totals.agencies)} />
-          <Tile label="Clients" value={formatNumber(totals.clients)} />
-          <Tile label="Google Ads connected" value={formatNumber(totals.connected)} />
-          <Tile
+          <StatTile label="Agencies" value={formatNumber(totals.agencies)} />
+          <StatTile label="Clients" value={formatNumber(totals.clients)} />
+          <StatTile label="Google Ads connected" value={formatNumber(totals.connected)} />
+          <StatTile
             label="Needs attention"
             value={formatNumber(totals.needsAttention)}
             tone={totals.needsAttention > 0 ? "caution" : undefined}
@@ -340,13 +352,12 @@ export default function MasterDashboard() {
                       <td className="px-5 py-3 text-ink-soft">{joined(agency.created_at)}</td>
                       <td className="px-5 py-3">
                         <div className="flex justify-end gap-2">
-                          <Button
+                          <CopyButton
                             variant="secondary"
                             size="sm"
-                            onClick={() => copyLoginLink(agency)}
-                          >
-                            {copiedSlug === agency.slug ? "Copied" : "Copy login link"}
-                          </Button>
+                            label="Copy login link"
+                            text={() => `${window.location.origin}/agencies/${agency.slug}/login`}
+                          />
                           {agency.owner_email ? (
                             <ResetLinkButton
                               endpoint={`/api/agencies/${agency.slug}/owner-access-link`}
@@ -383,7 +394,8 @@ export default function MasterDashboard() {
             {formatNumber(pendingDelete?.client_count ?? 0)} client
             {(pendingDelete?.client_count ?? 0) === 1 ? "" : "s"}
           </strong>{" "}
-          and their access to reports. The Google Ads accounts themselves are not touched.
+          and deletes the logins of its owner and every client, so none of them can sign in
+          again. The Google Ads accounts themselves are not touched.
         </p>
 
         <div className="mt-5 flex justify-end gap-2">
@@ -407,30 +419,4 @@ function agencyGroup(agency: Agency): Exclude<AgencyFilter, "all"> {
   if (status === "connected") return "connected";
   if (status === "expired" || status === "error") return "attention";
   return "disconnected";
-}
-
-function Tile({
-  label,
-  value,
-  caption,
-  tone,
-}: {
-  label: string;
-  value: string;
-  caption?: string;
-  tone?: "caution";
-}) {
-  return (
-    <div className="animate-rise rounded-2xl bg-surface px-4 py-3.5 ring-1 ring-line">
-      <p className="text-xs font-medium uppercase tracking-[0.12em] text-ink-faint">{label}</p>
-      <p
-        className={`tabular mt-1.5 text-2xl font-medium tracking-[-0.02em] ${
-          tone === "caution" ? "text-caution" : "text-ink"
-        }`}
-      >
-        {value}
-      </p>
-      {caption ? <p className="mt-0.5 text-xs text-ink-soft">{caption}</p> : null}
-    </div>
-  );
 }

@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 
 import { supabase } from "@/lib/supabase/browser";
 import { homePathFor } from "@/lib/home-path";
-import { AuthShell, Field, ForgotLink, FormError } from "@/components/ui/auth-shell";
+import { AuthShell, ForgotLink, FormError } from "@/components/ui/auth-shell";
+import { Field } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 
 // Local development convenience only. These come from the environment so that no

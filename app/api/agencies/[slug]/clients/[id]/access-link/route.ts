@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { requireApiAuth, requireAgencyAccess } from "@/lib/api-auth";
+import { requireAgency } from "@/lib/api-auth";
 import { createAccessLink, resolveAppOrigin } from "@/lib/invites";
 import { recordAudit } from "@/lib/audit";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -14,28 +14,14 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
  */
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ slug: string; id: string }> }
+  ctx: RouteContext<"/api/agencies/[slug]/clients/[id]/access-link">
 ) {
-  const { profile, response: authError } = await requireApiAuth([
+  const { slug, id } = await ctx.params;
+  const { profile, agency, response } = await requireAgency(slug, [
     "master_admin",
     "agency_admin",
   ]);
-  if (authError) return authError;
-
-  const { slug, id } = await params;
-
-  const { data: agency } = await supabaseAdmin
-    .from("agencies")
-    .select("id")
-    .eq("slug", slug)
-    .maybeSingle();
-
-  if (!agency) {
-    return NextResponse.json({ error: "Agency not found." }, { status: 404 });
-  }
-
-  const denied = requireAgencyAccess(profile, agency.id);
-  if (denied) return denied;
+  if (response) return response;
 
   // Scoped to the agency in the URL as well as the id, so a client id from
   // another agency cannot be used through this agency's address.

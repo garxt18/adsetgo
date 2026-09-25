@@ -96,3 +96,36 @@ export function SampleBanner({ className = "" }: { className?: string }) {
     </div>
   );
 }
+
+/**
+ * One headline figure on a dashboard. Anything extra, such as a sparkline, is
+ * passed as children so this file stays free of chart code.
+ */
+export function StatTile({
+  label,
+  value,
+  caption,
+  tone,
+  children,
+}: {
+  label: string;
+  value: string;
+  caption?: string;
+  tone?: "caution";
+  children?: ReactNode;
+}) {
+  return (
+    <div className="animate-rise rounded-2xl bg-surface px-4 py-3.5 ring-1 ring-line">
+      <p className="text-xs font-medium uppercase tracking-[0.12em] text-ink-faint">{label}</p>
+      <p
+        className={`tabular mt-1.5 text-2xl font-medium tracking-[-0.02em] ${
+          tone === "caution" ? "text-caution" : "text-ink"
+        }`}
+      >
+        {value}
+      </p>
+      {caption ? <p className="mt-0.5 text-xs text-ink-soft">{caption}</p> : null}
+      {children}
+    </div>
+  );
+}

@@ -144,3 +144,50 @@ export async function createAccessLink({
 
   return { ok: true, link, email };
 }
+
+/**
+ * The logins that belong to an agency, or to one client of it.
+ *
+ * Read before the agency or client row is deleted: deleting an agency sets
+ * its people's `agency_id` to null, after which nothing says whose they were.
+ * Only agency admins and clients are ever returned, never a platform admin.
+ */
+export async function loginsBelongingTo({
+  agencyId,
+  clientId,
+}: {
+  agencyId: string;
+  clientId?: string;
+}): Promise<string[]> {
+  let query = supabaseAdmin
+    .from("profiles")
+    .select("id")
+    .eq("agency_id", agencyId)
+    .in("role", clientId ? ["client"] : ["agency_admin", "client"]);
+
+  if (clientId) query = query.eq("client_id", clientId);
+
+  const { data } = await query;
+  return (data ?? []).map((profile) => profile.id);
+}
+
+/**
+ * Delete logins whose agency or client has been removed. Their profiles go
+ * with them (profiles.id cascades from auth.users).
+ *
+ * Left behind, such a login could not reach any data, but it kept its email
+ * address taken, so the same person could never be invited again. Never
+ * throws: the removal it follows has already happened, so a failure here is
+ * reported in the count rather than undoing it.
+ */
+export async function deleteLogins(userIds: string[]): Promise<{ removed: number; failed: number }> {
+  const results = await Promise.all(
+    userIds.map((id) => supabaseAdmin.auth.admin.deleteUser(id))
+  );
+
+  // Already gone counts as removed: that is the state being asked for.
+  const failed = results.filter(({ error }) => error && error.status !== 404);
+  failed.forEach(({ error }) => console.error("Could not delete login:", error));
+
+  return { removed: userIds.length - failed.length, failed: failed.length };
+}

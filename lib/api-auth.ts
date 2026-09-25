@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { findAgency, type Agency } from "./agencies.ts";
 import { getCurrentProfile, type AppProfile, type AppRole } from "./supabase/server.ts";
 
 export type ApiAuthSuccess = { profile: AppProfile; response: null };
@@ -63,6 +64,45 @@ export function requireAgencyAccess(
     { error: "You do not have access to this agency." },
     { status: 403 }
   );
+}
+
+/**
+ * The caller and the agency named in a route's URL, once both checks pass.
+ *
+ * Every agency route starts the same way -- who is asking, which agency, may
+ * they act for it -- and seven routes used to write that out themselves. The
+ * two lookups run at the same time, and the answers come in the order that
+ * gives away least: 401 or 403 for the caller before anything is said about
+ * the agency, then 404 if there is no such agency, then 403 if it is not
+ * theirs.
+ */
+export async function requireAgency(
+  slug: string,
+  allowedRoles: AppRole[]
+): Promise<
+  | { profile: AppProfile; agency: Agency; response: null }
+  | { profile: null; agency: null; response: NextResponse }
+> {
+  const [auth, agency] = await Promise.all([requireApiAuth(allowedRoles), findAgency(slug)]);
+
+  if (auth.response) {
+    return { profile: null, agency: null, response: auth.response };
+  }
+
+  if (!agency) {
+    return {
+      profile: null,
+      agency: null,
+      response: NextResponse.json({ error: "Agency not found." }, { status: 404 }),
+    };
+  }
+
+  const denied = requireAgencyAccess(auth.profile, agency.id);
+  if (denied) {
+    return { profile: null, agency: null, response: denied };
+  }
+
+  return { profile: auth.profile, agency, response: null };
 }
 
 /**

@@ -47,40 +47,6 @@ export function AuthShell({
   );
 }
 
-export function Field({
-  label,
-  type,
-  value,
-  onChange,
-  placeholder,
-  autoComplete,
-  hint,
-}: {
-  label: string;
-  type: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  autoComplete?: string;
-  hint?: string;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-sm font-medium text-ink">{label}</span>
-      <input
-        type={type}
-        required
-        value={value}
-        autoComplete={autoComplete}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-xl bg-surface px-3.5 py-2.5 text-sm text-ink ring-1 ring-line transition placeholder:text-ink-faint focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-      />
-      {hint ? <span className="mt-1 block text-xs text-ink-soft">{hint}</span> : null}
-    </label>
-  );
-}
-
 export function FormError({ message }: { message: string }) {
   if (!message) return null;
 

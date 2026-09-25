@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { CopyField } from "@/components/ui/copy";
 import { Modal } from "@/components/ui/modal";
 
 /**
@@ -29,14 +30,12 @@ export function ResetLinkButton({
   const [link, setLink] = useState("");
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
 
   async function issue() {
     setOpen(true);
     setBusy(true);
     setLink("");
     setError("");
-    setCopied(false);
 
     try {
       const res = await fetch(endpoint, { method: "POST" });
@@ -74,22 +73,7 @@ export function ResetLinkButton({
           <p className="rounded-xl bg-negative-tint px-3.5 py-2.5 text-sm text-negative">{error}</p>
         ) : (
           <div>
-            <div className="flex gap-2">
-              <input
-                readOnly
-                value={link}
-                aria-label="Password reset link"
-                className="w-full rounded-xl bg-surface-sunken px-3 py-2.5 text-sm text-ink ring-1 ring-line"
-              />
-              <Button
-                onClick={() => {
-                  navigator.clipboard.writeText(link);
-                  setCopied(true);
-                }}
-              >
-                {copied ? "Copied" : "Copy"}
-              </Button>
-            </div>
+            <CopyField value={link} label="Password reset link" />
             <p className="mt-3 text-xs text-ink-soft">
               {email ? (
                 <>

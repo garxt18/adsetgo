@@ -10,6 +10,7 @@ import { AgencyShell } from "@/components/agency-shell";
 import { ReportPanel, useReport } from "@/components/report-panel";
 import { ResetLinkButton } from "@/components/reset-link-button";
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy";
 import { Segmented } from "@/components/ui/segmented";
 import { StatusPill } from "@/components/ui/status-pill";
 
@@ -31,7 +32,6 @@ export function ClientView({
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<"overview" | "campaigns">("overview");
-  const [copied, setCopied] = useState(false);
   const state = useReport(client.id, {
     notConfigured: "This client has no Google Ads account linked yet.",
     failed: "The Google Ads connection needs attention, so figures are paused.",
@@ -89,20 +89,13 @@ export function ClientView({
             onChange={state.selectRange}
           />
           {/* What an agency actually needs here: the address to send the client. */}
-          <Button
+          <CopyButton
             variant="secondary"
             size="nav"
-            onClick={() => {
-              // Read the origin when clicked, not while rendering: the server
-              // has no window, and the difference is a hydration mismatch.
-              navigator.clipboard.writeText(
-                `${window.location.origin}/agencies/${slug}/client-login`
-              );
-              setCopied(true);
-            }}
-          >
-            {copied ? "Link copied" : "Copy client login link"}
-          </Button>
+            label="Copy client login link"
+            copiedLabel="Link copied"
+            text={() => `${window.location.origin}/agencies/${slug}/client-login`}
+          />
           <ResetLinkButton
             endpoint={`/api/agencies/${slug}/clients/${client.id}/access-link`}
             who={client.name}

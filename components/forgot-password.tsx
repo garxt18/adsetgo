@@ -5,7 +5,8 @@ import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { supabase } from "@/lib/supabase/browser";
-import { AuthShell, Field, FormError } from "@/components/ui/auth-shell";
+import { AuthShell, FormError } from "@/components/ui/auth-shell";
+import { Field } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 import { safeReturn } from "@/lib/safe-return";
 

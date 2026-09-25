@@ -3,7 +3,9 @@ import {
   formatGoogleAdsCustomerId,
   normalizeGoogleAdsCustomerId,
 } from "./format.ts";
+import type { ResolvedRange } from "./date-range.ts";
 import { forgetCached, reportCacheKey, withReportCache } from "./report-cache.ts";
+import { buildSampleRows, isSampleDataEnabled } from "./sample-data.ts";
 
 /**
  * Every Google Ads call goes through this one version. Google sunsets old
@@ -147,6 +149,20 @@ export type GoogleAdsRow = {
   };
 };
 
+/**
+ * Headers for every Google Ads API call. `login-customer-id` names the manager
+ * account a request acts through; without it Google only answers for accounts
+ * the signed-in Google user owns directly.
+ */
+function googleAdsHeaders(accessToken: string, loginCustomerId?: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${accessToken}`,
+    "developer-token": process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? "",
+    "Content-Type": "application/json",
+    ...(loginCustomerId ? { "login-customer-id": loginCustomerId } : {}),
+  };
+}
+
 /** googleAds:search returns one object; googleAds:searchStream an array of chunks. */
 type GoogleAdsSearchChunk = {
   results?: GoogleAdsRow[];
@@ -155,6 +171,76 @@ type GoogleAdsSearchChunk = {
 
 type GoogleAdsSearchPayload = GoogleAdsSearchChunk | GoogleAdsSearchChunk[];
 
+const ACCOUNT_TREE_QUERY = `
+  SELECT
+    customer_client.client_customer,
+    customer_client.id,
+    customer_client.descriptive_name,
+    customer_client.status,
+    customer_client.hidden,
+    customer_client.manager,
+    customer_client.test_account,
+    customer_client.currency_code,
+    customer_client.time_zone,
+    customer_client.level
+  FROM customer_client
+`;
+
+/**
+ * Every account under one root the token can see (the root included), read
+ * from its customer_client hierarchy: active, cancelled, closed and hidden
+ * accounts, and managers. A root that fails is logged and contributes nothing,
+ * so one inaccessible account does not hide the rest.
+ */
+async function fetchAccountsUnder(rootId: string, accessToken: string): Promise<FullGoogleAdsAccount[]> {
+  try {
+    const response = await fetch(
+      `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${rootId}/googleAds:searchStream`,
+      {
+        method: "POST",
+        headers: googleAdsHeaders(accessToken, rootId),
+        body: JSON.stringify({ query: ACCOUNT_TREE_QUERY }),
+      }
+    );
+
+    if (!response.ok) {
+      console.warn(`Hierarchy search failed for ${rootId}: status ${response.status}`);
+      return [];
+    }
+
+    const payload = await response.json();
+    const chunks = Array.isArray(payload) ? payload : [payload];
+    const rows = chunks.flatMap((chunk: { results?: Array<Record<string, unknown>> }) => chunk.results ?? []);
+
+    return rows.flatMap((entry) => {
+      const client = (entry.customerClient ?? entry.customer_client ?? entry) as Record<string, unknown>;
+      const rawId = String(client.id ?? client.customerId ?? client.customer_id ?? "");
+      if (!rawId) return [];
+
+      const formatted = formatGoogleAdsCustomerId(rawId);
+      const descriptiveName = client.descriptiveName ?? client.descriptive_name;
+
+      return [
+        {
+          customerId: rawId,
+          formattedCustomerId: formatted,
+          name: String(descriptiveName || (client.manager ? "Manager Account" : `Account ${formatted}`)),
+          status: String(client.status ?? "ENABLED"),
+          hidden: Boolean(client.hidden),
+          manager: Boolean(client.manager),
+          testAccount: Boolean(client.testAccount ?? client.test_account),
+          currencyCode: (client.currencyCode ?? client.currency_code) as string | null | undefined,
+          timeZone: (client.timeZone ?? client.time_zone) as string | null | undefined,
+          managerCustomerId: rawId === rootId ? null : rootId,
+        },
+      ];
+    });
+  } catch (error) {
+    console.warn(`Failed querying customer_client hierarchy for ${rootId}:`, error);
+    return [];
+  }
+}
+
 export async function fetchAllGoogleAdsAccounts({
   accessToken,
   managerCustomerId,
@@ -162,96 +248,32 @@ export async function fetchAllGoogleAdsAccounts({
   accessToken: string;
   managerCustomerId?: string | null;
 }): Promise<FullGoogleAdsAccount[]> {
-  const accountMap = new Map<string, FullGoogleAdsAccount>();
-  const devToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? "";
-
-  // 1. Fetch all root accessible customers
-  let accessibleCustomerIds: string[] = [];
+  let rootIds: string[] = [];
   try {
-    accessibleCustomerIds = await fetchAccessibleGoogleAdsCustomers({ accessToken });
+    rootIds = await fetchAccessibleGoogleAdsCustomers({ accessToken });
   } catch (err) {
     console.warn("fetchAccessibleGoogleAdsCustomers failed:", err);
   }
 
   const cleanedManagerId = normalizeGoogleAdsCustomerId(managerCustomerId);
-  if (cleanedManagerId && !accessibleCustomerIds.includes(cleanedManagerId)) {
-    accessibleCustomerIds.push(cleanedManagerId);
+  if (cleanedManagerId && !rootIds.includes(cleanedManagerId)) {
+    rootIds.push(cleanedManagerId);
   }
 
-  // 2. For each accessible customer (or manager), query customer_client hierarchy
-  for (const customerId of accessibleCustomerIds) {
-    const cleanId = normalizeGoogleAdsCustomerId(customerId);
-    if (!cleanId) continue;
+  const roots = rootIds.map((id) => normalizeGoogleAdsCustomerId(id)).filter(Boolean);
 
-    // Query customer_client hierarchy via searchStream (fetches all root + child accounts: active, canceled, closed, hidden, managers)
-    try {
-      const hierResp = await fetch(
-        `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${cleanId}/googleAds:searchStream`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "developer-token": devToken,
-            "login-customer-id": cleanId,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            query: `
-              SELECT
-                customer_client.client_customer,
-                customer_client.id,
-                customer_client.descriptive_name,
-                customer_client.status,
-                customer_client.hidden,
-                customer_client.manager,
-                customer_client.test_account,
-                customer_client.currency_code,
-                customer_client.time_zone,
-                customer_client.level
-              FROM customer_client
-            `,
-          }),
-        }
-      );
+  // All roots at once: they are independent, and asking one after another
+  // made the Google Ads view wait for the sum of every round trip. Merged in
+  // root order afterwards, so an account seen under two roots resolves the
+  // same way it did when they were read in sequence.
+  const trees = await Promise.all(roots.map((rootId) => fetchAccountsUnder(rootId, accessToken)));
+  const accountMap = new Map<string, FullGoogleAdsAccount>();
+  for (const account of trees.flat()) accountMap.set(account.customerId, account);
 
-      if (hierResp.ok) {
-        const hierData = await hierResp.json();
-        const batches = Array.isArray(hierData) ? hierData : [hierData];
-        const rows = batches.flatMap((b: { results?: Array<Record<string, unknown>> }) => b.results ?? []);
-
-        for (const entry of rows) {
-          const client = (entry.customerClient ?? entry.customer_client ?? entry) as Record<string, unknown>;
-          const rawId = String(client.id ?? client.customerId ?? client.customer_id ?? "");
-          if (!rawId) continue;
-
-          const rawStatus = String(client.status ?? "ENABLED");
-          const descriptiveName = client.descriptiveName ?? client.descriptive_name;
-
-          accountMap.set(rawId, {
-            customerId: rawId,
-            formattedCustomerId: formatGoogleAdsCustomerId(rawId),
-            name: String(descriptiveName || (client.manager ? "Manager Account" : `Account ${formatGoogleAdsCustomerId(rawId)}`)),
-            status: rawStatus,
-            hidden: Boolean(client.hidden),
-            manager: Boolean(client.manager),
-            testAccount: Boolean(client.testAccount ?? client.test_account),
-            currencyCode: (client.currencyCode ?? client.currency_code) as string | null | undefined,
-            timeZone: (client.timeZone ?? client.time_zone) as string | null | undefined,
-            managerCustomerId: rawId === cleanId ? null : cleanId,
-          });
-        }
-      } else {
-        console.warn(`Hierarchy search failed for ${cleanId}: status ${hierResp.status}`);
-      }
-    } catch (e) {
-      console.warn(`Failed querying customer_client hierarchy for ${cleanId}:`, e);
-    }
-  }
-
-  // Fallback: if accountMap is empty but we have accessibleCustomerIds, populate them
-  if (accountMap.size === 0 && accessibleCustomerIds.length > 0) {
-    for (const id of accessibleCustomerIds) {
-      const rawId = normalizeGoogleAdsCustomerId(id);
+  // Nothing readable from any hierarchy: list the roots themselves, so the
+  // agency at least sees which accounts its Google login reaches.
+  if (accountMap.size === 0) {
+    for (const rawId of roots) {
       accountMap.set(rawId, {
         customerId: rawId,
         formattedCustomerId: formatGoogleAdsCustomerId(rawId),
@@ -316,19 +338,9 @@ export async function fetchGoogleAdsMetrics({
     ORDER BY segments.date ASC
   `;
 
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${accessToken}`,
-    "developer-token": process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? "",
-    "Content-Type": "application/json",
-  };
-
-  if (cleanedManagerId) {
-    headers["login-customer-id"] = cleanedManagerId;
-  }
-
   const response = await fetch(url, {
     method: "POST",
-    headers,
+    headers: googleAdsHeaders(accessToken, cleanedManagerId),
     body: JSON.stringify({ query }),
   });
 
@@ -359,6 +371,42 @@ export async function fetchGoogleAdsMetrics({
   return payload?.results ?? [];
 }
 
+/**
+ * The rows behind one account's report: the chosen period and the one before
+ * it, fetched together so the comparison always matches the period on screen.
+ *
+ * Each window is cached, and the access token is only asked for on a cache
+ * miss. In sample mode nothing reaches Google at all: no token, no quota.
+ */
+export async function fetchReportRows({
+  agencyId,
+  customerId,
+  managerCustomerId,
+  range,
+}: {
+  agencyId: string;
+  customerId: string;
+  managerCustomerId: string;
+  range: ResolvedRange;
+}): Promise<[GoogleAdsRow[], GoogleAdsRow[]]> {
+  const sample = isSampleDataEnabled();
+
+  const load = (startDate: string, endDate: string) =>
+    sample
+      ? Promise.resolve(buildSampleRows({ customerId, startDate, endDate }))
+      : withReportCache(reportCacheKey([customerId, managerCustomerId, startDate, endDate]), async () =>
+          fetchGoogleAdsMetrics({
+            clientCustomerId: customerId,
+            managerCustomerId,
+            startDate,
+            endDate,
+            accessToken: await getGoogleAdsAccessToken(agencyId),
+          })
+        );
+
+  return Promise.all([load(range.start, range.end), load(range.previousStart, range.previousEnd)]);
+}
+
 export async function fetchAccessibleGoogleAdsCustomers({
   accessToken,
 }: {
@@ -368,11 +416,7 @@ export async function fetchAccessibleGoogleAdsCustomers({
     `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers:listAccessibleCustomers`,
     {
       method: "GET",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "developer-token": process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? "",
-        "Content-Type": "application/json",
-      },
+      headers: googleAdsHeaders(accessToken),
     }
   );
 
