@@ -7,7 +7,7 @@ import { signOut } from "@/lib/sign-out";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { RANGE_OPTIONS, span, type Period } from "@/lib/google-ads/date-range";
 import { ReportPanel, useReport } from "@/components/report-panel";
-import type { Campaign } from "@/components/client-report";
+import type { Campaign, ReportTab } from "@/components/client-report";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { ThemeToggle } from "@/components/ui/theme";
@@ -49,7 +49,7 @@ export function ClientPortal({
   client: { id: string; name: string; googleAdsCustomerId: string | null };
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<"overview" | "campaigns">("overview");
+  const [tab, setTab] = useState<ReportTab>("overview");
   const state = useReport(client.id, {
     notConfigured: "Your agency has not linked a Google Ads account to this workspace yet.",
     failed: "Your agency's Google Ads connection needs attention, so figures are paused.",
@@ -59,7 +59,7 @@ export function ClientPortal({
 
   // Switching view returns to the top: keeping the old scroll position drops
   // the reader into the middle of a page they have not seen yet.
-  function selectTab(next: "overview" | "campaigns") {
+  function selectTab(next: ReportTab) {
     setTab(next);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -86,6 +86,7 @@ export function ClientPortal({
               active={tab === "campaigns"}
               onClick={() => selectTab("campaigns")}
             />
+            <TopBarTab label="Calls" active={tab === "calls"} onClick={() => selectTab("calls")} />
           </>
         }
         actions={

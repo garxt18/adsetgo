@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 /**
  * Charts for this product, drawn as plain SVG.
@@ -101,8 +101,13 @@ export function LineChart({
 
   return (
     <div className="relative">
+      {/* Stretched to whatever width the card has, like the sparkline. Without
+          this the fixed 600-unit canvas kept its shape and sat centred, which
+          left a full-width card mostly empty. Strokes use non-scaling-stroke,
+          so they keep their weight when stretched. */}
       <svg
         viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="none"
         className="w-full text-brand"
         style={{ height }}
         role="img"
@@ -171,17 +176,19 @@ export function LineChart({
               strokeWidth="1"
               vectorEffect="non-scaling-stroke"
             />
-            <circle
-              cx={x(hover)}
-              cy={y(points[hover].value)}
-              r="4"
-              fill="currentColor"
-              stroke="var(--surface)"
-              strokeWidth="2"
-            />
           </g>
         ) : null}
       </svg>
+
+      {/* The marker is HTML, not SVG: a circle in a stretched canvas turns
+          into an oval. The canvas maps height one to one, so y is in pixels. */}
+      {hover !== null ? (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand ring-2 ring-surface"
+          style={{ left: `${(x(hover) / width) * 100}%`, top: y(points[hover].value) }}
+        />
+      ) : null}
 
       <div className="mt-1 flex justify-between text-[11px] text-ink-faint">
         <span>{points[0].label}</span>
@@ -358,5 +365,59 @@ export function DeltaChip({
             : "worse than the previous period"}
       </span>
     </span>
+  );
+}
+
+/**
+ * Two parts of one whole, such as answered against missed calls. The first
+ * part is drawn in the brand colour and the second in a light tint of it: they
+ * are one measure split two ways, not two different things, so no second hue.
+ * Whatever is passed as children sits in the middle.
+ */
+export function Donut({
+  parts,
+  size = 164,
+  children,
+}: {
+  parts: [Point, Point];
+  size?: number;
+  children?: ReactNode;
+}) {
+  const total = parts[0].value + parts[1].value;
+  const stroke = 18;
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const first = total > 0 ? (parts[0].value / total) * circumference : 0;
+  const centre = size / 2;
+
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg
+        width={size}
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
+        role="img"
+        aria-label={`${parts[0].label} ${parts[0].value}, ${parts[1].label} ${parts[1].value}`}
+      >
+        <circle cx={centre} cy={centre} r={radius} fill="none" strokeWidth={stroke} className="stroke-brand/20" />
+        {first > 0 ? (
+          <circle
+            cx={centre}
+            cy={centre}
+            r={radius}
+            fill="none"
+            strokeWidth={stroke}
+            className="stroke-brand transition-[stroke-dasharray] duration-500"
+            strokeDasharray={`${first} ${circumference}`}
+            transform={`rotate(-90 ${centre} ${centre})`}
+          />
+        ) : null}
+      </svg>
+      {children ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+          {children}
+        </div>
+      ) : null}
+    </div>
   );
 }

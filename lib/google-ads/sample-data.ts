@@ -1,4 +1,5 @@
-import type { GoogleAdsRow } from "./auth.ts";
+import type { CallRow, GoogleAdsRow } from "./auth.ts";
+import { eachDay } from "./date-range.ts";
 
 /**
  * Generated report rows, for building and demonstrating the product before a
@@ -45,18 +46,6 @@ function seedFrom(text: string): number {
   return hash >>> 0;
 }
 
-function eachDay(startDate: string, endDate: string): string[] {
-  const days: string[] = [];
-  const cursor = new Date(`${startDate}T00:00:00Z`);
-  const end = new Date(`${endDate}T00:00:00Z`);
-
-  while (cursor <= end && days.length < 400) {
-    days.push(cursor.toISOString().slice(0, 10));
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-
-  return days;
-}
 
 /** Only ever true outside production, and only when explicitly switched on. */
 export function isSampleDataEnabled(): boolean {
@@ -99,14 +88,59 @@ export function buildSampleRows({
       rows.push({
         campaign: { id: campaign.id, name: campaign.name, status: campaign.status },
         segments: { date: day },
+        // Shaped exactly as Google's reply (camelCase, numbers as strings),
+        // so sample mode exercises the same reading code live data does.
         metrics: {
-          impressions,
-          clicks,
-          cost_micros: Math.round(cost * 1_000_000),
+          impressions: String(impressions),
+          clicks: String(clicks),
+          costMicros: String(Math.round(cost * 1_000_000)),
           conversions,
-          conversions_value: conversions * (48 + random() * 90),
-          ctr,
-          average_cpc: Math.round(cpc * 1_000_000),
+          conversionsValue: conversions * (48 + random() * 90),
+        },
+      });
+    }
+  }
+
+  return rows;
+}
+
+/**
+ * Generated calls in call_view's shape. Seeded on their own ("calls:"), so
+ * adding them left the generated spend and clicks exactly as they were.
+ */
+export function buildSampleCalls({
+  customerId,
+  startDate,
+  endDate,
+}: {
+  customerId: string;
+  startDate: string;
+  endDate: string;
+}): CallRow[] {
+  const rows: CallRow[] = [];
+  // Search and Performance Max ads carry call assets; video rarely does.
+  const calling = CAMPAIGNS.filter((campaign) => !campaign.name.startsWith("Video"));
+  const totalWeight = calling.reduce((sum, campaign) => sum + campaign.weight, 0);
+
+  for (const day of eachDay(startDate, endDate)) {
+    const random = mulberry32(seedFrom(`${customerId}:calls:${day}`));
+    const weekday = new Date(`${day}T00:00:00Z`).getUTCDay();
+    const count = Math.round((weekday === 0 || weekday === 6 ? 3 : 9) * (0.6 + random() * 0.8));
+
+    for (let i = 0; i < count; i += 1) {
+      let pick = random() * totalWeight;
+      const campaign = calling.find((c) => (pick -= c.weight) <= 0) ?? calling[0];
+      const missed = random() < 0.24;
+      const hour = String(9 + Math.floor(random() * 10)).padStart(2, "0");
+      const minute = String(Math.floor(random() * 60)).padStart(2, "0");
+
+      rows.push({
+        campaign: { id: campaign.id, name: campaign.name },
+        callView: {
+          startCallDateTime: `${day} ${hour}:${minute}:00`,
+          callStatus: missed ? "MISSED" : "RECEIVED",
+          callDurationSeconds: String(missed ? 0 : 35 + Math.round(random() * 420)),
+          callTrackingDisplayLocation: random() < 0.72 ? "AD" : "LANDING_PAGE",
         },
       });
     }

@@ -47,6 +47,9 @@ export type TrendRow = {
 
 export type Changes = Partial<Record<keyof Metrics, number | null>>;
 
+/** The report's views. Calls has its own component and loads separately. */
+export type ReportTab = "overview" | "campaigns" | "calls";
+
 type MetricKey = keyof Metrics;
 
 const MEASURES: Record<
@@ -153,7 +156,7 @@ export function ClientReport({
   /** Dates the two lines cover, so the dashed one is never a mystery. */
   periodLabel: string;
   comparisonLabel: string;
-  tab: "overview" | "campaigns";
+  tab: ReportTab;
 }) {
   const [openMetric, setOpenMetric] = useState<MetricKey | null>(null);
   const [compare, setCompare] = useState(false);

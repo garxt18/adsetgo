@@ -8,6 +8,7 @@ import { signOut } from "@/lib/sign-out";
 import { RANGE_OPTIONS, span } from "@/lib/google-ads/date-range";
 import { formatGoogleAdsCustomerId } from "@/lib/google-ads/format";
 import { AgencyShell } from "@/components/agency-shell";
+import type { ReportTab } from "@/components/client-report";
 import { ReportPanel, useReport } from "@/components/report-panel";
 import { ResetLinkButton } from "@/components/reset-link-button";
 import { Button } from "@/components/ui/button";
@@ -33,7 +34,7 @@ export function ClientView({
   };
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<"overview" | "campaigns">("overview");
+  const [tab, setTab] = useState<ReportTab>("overview");
   const state = useReport(client.id, {
     notConfigured: "This client has no Google Ads account linked yet.",
     failed: "The Google Ads connection needs attention, so figures are paused.",
@@ -115,6 +116,7 @@ export function ClientView({
             active={tab === "campaigns"}
             onClick={() => setTab("campaigns")}
           />
+          <TabButton label="Calls" active={tab === "calls"} onClick={() => setTab("calls")} />
         </div>
         <div className="pb-2">
           <Segmented

@@ -14,7 +14,7 @@ function row(date: string, campaign: string, m: { impressions: number; clicks: n
     metrics: {
       impressions: String(m.impressions),
       clicks: String(m.clicks),
-      cost_micros: String(m.spend * 1_000_000),
+      costMicros: String(m.spend * 1_000_000),
       conversions: m.conversions,
     },
   };
@@ -95,4 +95,17 @@ test("sample rows go through the same arithmetic, one trend point per day", () =
   // the rounded total by a paisa per day at most -- never by more.
   const daySum = report.trend.reduce((sum, d) => sum + d.cost, 0);
   assert.ok(Math.abs(report.metrics.cost - daySum) <= 0.01 * report.trend.length);
+});
+
+test("spend is read the way Google's REST API spells it", () => {
+  // The query says metrics.cost_micros; the JSON reply says costMicros. Reading
+  // the query's spelling found nothing, and every live report showed ₹0 spend.
+  const reply = JSON.parse(
+    '{"segments":{"date":"2026-03-01"},"campaign":{"id":"1"},"metrics":{"clicks":"4","costMicros":"2500000","conversionsValue":12.5}}'
+  ) as GoogleAdsRow;
+
+  const s = summarize([reply]);
+  assert.equal(s.cost, 2.5);
+  assert.equal(s.conversionValue, 12.5);
+  assert.equal(s.roas, 5);
 });

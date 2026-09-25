@@ -5,7 +5,7 @@ import {
 } from "./format.ts";
 import type { ResolvedRange } from "./date-range.ts";
 import { forgetCached, reportCacheKey, withReportCache } from "./report-cache.ts";
-import { buildSampleRows, isSampleDataEnabled } from "./sample-data.ts";
+import { buildSampleCalls, buildSampleRows, isSampleDataEnabled } from "./sample-data.ts";
 
 /**
  * Every Google Ads call goes through this one version. Google sunsets old
@@ -127,7 +127,13 @@ export type FullGoogleAdsAccount = {
   managerCustomerId?: string | null;
 };
 
-/** One row of a Google Ads campaign report. */
+/**
+ * One row of a Google Ads campaign report, spelled the way the REST API sends
+ * it. The query names fields in snake_case (metrics.cost_micros) but the JSON
+ * reply is camelCase (metrics.costMicros). Reading the query's spelling from
+ * the reply found nothing, so every rupee of real spend came through as 0 --
+ * and sample data, written in the same wrong spelling, hid it.
+ */
 export type GoogleAdsRow = {
   campaign?: {
     id?: string | number;
@@ -137,15 +143,26 @@ export type GoogleAdsRow = {
   metrics?: {
     impressions?: number | string;
     clicks?: number | string;
-    cost_micros?: number | string;
+    costMicros?: number | string;
     conversions?: number | string;
-    conversions_value?: number | string;
-    ctr?: number | string;
-    average_cpc?: number | string;
-    average_cpm?: number | string;
+    conversionsValue?: number | string;
   };
   segments?: {
     date?: string;
+  };
+};
+
+/** One call from call_view, spelled as the REST API sends it (camelCase). */
+export type CallRow = {
+  campaign?: { id?: string | number; name?: string };
+  callView?: {
+    /** "2026-09-18 14:03:21", in the account's own time zone. */
+    startCallDateTime?: string;
+    /** "RECEIVED" or "MISSED". */
+    callStatus?: string;
+    callDurationSeconds?: number | string;
+    /** "AD" when dialled from the ad, "LANDING_PAGE" when from the website. */
+    callTrackingDisplayLocation?: string;
   };
 };
 
@@ -164,12 +181,12 @@ function googleAdsHeaders(accessToken: string, loginCustomerId?: string): Record
 }
 
 /** googleAds:search returns one object; googleAds:searchStream an array of chunks. */
-type GoogleAdsSearchChunk = {
-  results?: GoogleAdsRow[];
+type GoogleAdsSearchChunk<T> = {
+  results?: T[];
   error?: { message?: string };
 };
 
-type GoogleAdsSearchPayload = GoogleAdsSearchChunk | GoogleAdsSearchChunk[];
+type GoogleAdsSearchPayload<T> = GoogleAdsSearchChunk<T> | GoogleAdsSearchChunk<T>[];
 
 const ACCOUNT_TREE_QUERY = `
   SELECT
@@ -292,75 +309,34 @@ export async function fetchAllGoogleAdsAccounts({
   return Array.from(accountMap.values());
 }
 
-/**
- * Fetch campaign metrics for one client account.
- *
- * `managerCustomerId` is optional: an agency that has not recorded its MCC id
- * can still read an account the connected Google user owns directly.
- */
-export async function fetchGoogleAdsMetrics({
-  clientCustomerId,
-  managerCustomerId,
-  startDate,
-  endDate,
-  accessToken,
-}: {
-  clientCustomerId: string;
-  managerCustomerId?: string | null;
-  /** Inclusive YYYY-MM-DD bounds; see lib/google-ads/date-range.ts. */
-  startDate: string;
-  endDate: string;
-  accessToken: string;
-}): Promise<GoogleAdsRow[]> {
-  const cleanedCustomerId = normalizeGoogleAdsCustomerId(clientCustomerId);
-  const cleanedManagerId = normalizeGoogleAdsCustomerId(managerCustomerId);
-
-  if (!cleanedCustomerId) {
-    throw new Error("Google Ads customer ID is required.");
-  }
-  const url = `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${cleanedCustomerId}/googleAds:searchStream`;
-  const query = `
-    SELECT
-      segments.date,
-      campaign.id,
-      campaign.name,
-      campaign.status,
-      metrics.impressions,
-      metrics.clicks,
-      metrics.cost_micros,
-      metrics.conversions,
-      metrics.conversions_value,
-      metrics.ctr,
-      metrics.average_cpc,
-      metrics.average_cpm
-    FROM campaign
-    WHERE segments.date BETWEEN '${startDate}' AND '${endDate}' 
-    ORDER BY segments.date ASC
-  `;
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: googleAdsHeaders(accessToken, cleanedManagerId),
-    body: JSON.stringify({ query }),
-  });
+/** One GAQL query against one account: every row of every chunk. */
+async function searchStream<T>(
+  customerId: string,
+  managerCustomerId: string,
+  query: string,
+  accessToken: string
+): Promise<T[]> {
+  const response = await fetch(
+    `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${customerId}/googleAds:searchStream`,
+    {
+      method: "POST",
+      headers: googleAdsHeaders(accessToken, managerCustomerId),
+      body: JSON.stringify({ query }),
+    }
+  );
 
   const rawText = await response.text();
-  let payload: GoogleAdsSearchPayload | null = null;
+  let payload: GoogleAdsSearchPayload<T> | null = null;
 
   try {
-    payload = rawText ? (JSON.parse(rawText) as GoogleAdsSearchPayload) : null;
+    payload = rawText ? (JSON.parse(rawText) as GoogleAdsSearchPayload<T>) : null;
   } catch {
     payload = null;
   }
 
   if (!response.ok) {
-    const message = Array.isArray(payload)
-      ? payload[0]?.error?.message
-      : payload?.error?.message;
-
-    throw new Error(
-      message ?? `Google Ads API request failed (${response.status}).`
-    );
+    const message = Array.isArray(payload) ? payload[0]?.error?.message : payload?.error?.message;
+    throw new Error(message ?? `Google Ads API request failed (${response.status}).`);
   }
 
   // searchStream replies with an array of chunks; search replies with one object.
@@ -371,40 +347,93 @@ export async function fetchGoogleAdsMetrics({
   return payload?.results ?? [];
 }
 
+type WindowRequest = {
+  agencyId: string;
+  customerId: string;
+  /** May be empty: an account the connected Google user owns directly needs none. */
+  managerCustomerId: string;
+  range: ResolvedRange;
+};
+
 /**
- * The rows behind one account's report: the chosen period and the one before
- * it, fetched together so the comparison always matches the period on screen.
+ * One kind of report for one account, for the chosen period and the one before
+ * it, fetched together so a comparison always matches the period on screen.
  *
  * Each window is cached, and the access token is only asked for on a cache
  * miss. In sample mode nothing reaches Google at all: no token, no quota.
  */
-export async function fetchReportRows({
-  agencyId,
-  customerId,
-  managerCustomerId,
-  range,
-}: {
-  agencyId: string;
-  customerId: string;
-  managerCustomerId: string;
-  range: ResolvedRange;
-}): Promise<[GoogleAdsRow[], GoogleAdsRow[]]> {
-  const sample = isSampleDataEnabled();
+function fetchWindows<T>(
+  { agencyId, customerId, managerCustomerId, range }: WindowRequest,
+  kind: string,
+  query: (start: string, end: string) => string,
+  sample: (start: string, end: string) => T[]
+): Promise<[T[], T[]]> {
+  const useSample = isSampleDataEnabled();
 
-  const load = (startDate: string, endDate: string) =>
-    sample
-      ? Promise.resolve(buildSampleRows({ customerId, startDate, endDate }))
-      : withReportCache(reportCacheKey([customerId, managerCustomerId, startDate, endDate]), async () =>
-          fetchGoogleAdsMetrics({
-            clientCustomerId: customerId,
+  const load = (start: string, end: string) =>
+    useSample
+      ? Promise.resolve(sample(start, end))
+      : withReportCache(reportCacheKey([kind, customerId, managerCustomerId, start, end]), async () =>
+          searchStream<T>(
+            customerId,
             managerCustomerId,
-            startDate,
-            endDate,
-            accessToken: await getGoogleAdsAccessToken(agencyId),
-          })
+            query(start, end),
+            await getGoogleAdsAccessToken(agencyId)
+          )
         );
 
   return Promise.all([load(range.start, range.end), load(range.previousStart, range.previousEnd)]);
+}
+
+/** Campaign rows, one per campaign per day, behind a client's report. */
+export function fetchReportRows(request: WindowRequest) {
+  return fetchWindows<GoogleAdsRow>(
+    request,
+    "campaigns",
+    (start, end) => `
+      SELECT
+        segments.date,
+        campaign.id,
+        campaign.name,
+        campaign.status,
+        metrics.impressions,
+        metrics.clicks,
+        metrics.cost_micros,
+        metrics.conversions,
+        metrics.conversions_value
+      FROM campaign
+      WHERE segments.date BETWEEN '${start}' AND '${end}'
+      ORDER BY segments.date ASC
+    `,
+    (startDate, endDate) => buildSampleRows({ customerId: request.customerId, startDate, endDate })
+  );
+}
+
+/**
+ * Every call that came through the client's ads, one row per call.
+ *
+ * Google only knows about calls to its own forwarding numbers -- call assets,
+ * call-only ads, and website numbers with call reporting on -- so calls from
+ * other channels never appear here. It also hides callers' numbers, which is
+ * why there is no "first-time caller" figure.
+ */
+export function fetchCallRows(request: WindowRequest) {
+  return fetchWindows<CallRow>(
+    request,
+    "calls",
+    (start, end) => `
+      SELECT
+        call_view.start_call_date_time,
+        call_view.call_status,
+        call_view.call_duration_seconds,
+        call_view.call_tracking_display_location,
+        campaign.id,
+        campaign.name
+      FROM call_view
+      WHERE call_view.start_call_date_time BETWEEN '${start} 00:00:00' AND '${end} 23:59:59'
+    `,
+    (startDate, endDate) => buildSampleCalls({ customerId: request.customerId, startDate, endDate })
+  );
 }
 
 export async function fetchAccessibleGoogleAdsCustomers({

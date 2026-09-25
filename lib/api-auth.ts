@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { findAgency, type Agency } from "./agencies.ts";
+import { normalizeGoogleAdsCustomerId } from "./google-ads/format.ts";
+import { supabaseAdmin } from "./supabase/admin.ts";
 import { getCurrentProfile, type AppProfile, type AppRole } from "./supabase/server.ts";
 
 export type ApiAuthSuccess = { profile: AppProfile; response: null };
@@ -125,4 +127,59 @@ export function requireClientAccess(
     { error: "You do not have access to this client." },
     { status: 403 }
   );
+}
+
+/** The client a report is about, with the ids a Google Ads query needs. */
+export type ReportClient = {
+  id: string;
+  agencyId: string;
+  /** Ten digits, or "" when no account is linked yet. */
+  customerId: string;
+  /** Ten digits, or "" when the agency has not recorded its manager account. */
+  managerCustomerId: string;
+};
+
+/**
+ * The client a report request is about, once the caller may see it. A client
+ * always gets their own record, whatever id they send; agency staff name one.
+ * The report and the calls report both start here.
+ */
+export async function requireReportClient(
+  requestedClientId: string | null
+): Promise<{ client: ReportClient; response: null } | { client: null; response: NextResponse }> {
+  const fail = (response: NextResponse) => ({ client: null, response });
+
+  const { profile, response } = await requireApiAuth();
+  if (response) return fail(response);
+
+  const clientId = profile.role === "client" ? profile.client_id : requestedClientId;
+  if (!clientId) return fail(NextResponse.json({ error: "clientId is required" }, { status: 400 }));
+
+  // Only the columns a report needs: the agency row also holds the Google
+  // refresh token, which has no reason to be loaded here.
+  const { data: client } = await supabaseAdmin
+    .from("clients")
+    .select("id, agency_id, google_ads_customer_id, agencies:agency_id(google_ads_manager_customer_id)")
+    .eq("id", clientId)
+    .maybeSingle();
+
+  if (!client) return fail(NextResponse.json({ error: "Client not found." }, { status: 404 }));
+
+  // Denies unless a rule allows.
+  const denied = requireClientAccess(profile, client);
+  if (denied) return fail(denied);
+
+  // A to-one join arrives as one object; without generated database types the
+  // client library cannot know that and types it as a list.
+  const agency = client.agencies as unknown as { google_ads_manager_customer_id: string | null } | null;
+
+  return {
+    client: {
+      id: client.id,
+      agencyId: client.agency_id,
+      customerId: normalizeGoogleAdsCustomerId(client.google_ads_customer_id),
+      managerCustomerId: normalizeGoogleAdsCustomerId(agency?.google_ads_manager_customer_id),
+    },
+    response: null,
+  };
 }

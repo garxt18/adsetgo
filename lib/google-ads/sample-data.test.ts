@@ -73,7 +73,7 @@ test("rows cover every day of the range and carry usable metrics", () => {
   for (const row of rows) {
     assert.ok(Number(row.metrics?.impressions) > 0);
     assert.ok(Number(row.metrics?.clicks) > 0);
-    assert.ok(Number(row.metrics?.cost_micros) > 0);
+    assert.ok(Number(row.metrics?.costMicros) > 0);
     // Clicks can never exceed impressions, or every derived rate is nonsense.
     assert.ok(Number(row.metrics?.clicks) <= Number(row.metrics?.impressions));
   }

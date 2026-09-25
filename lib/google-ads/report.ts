@@ -35,9 +35,9 @@ function totals(rows: GoogleAdsRow[]) {
   for (const row of rows) {
     impressions += Number(row.metrics?.impressions ?? 0);
     clicks += Number(row.metrics?.clicks ?? 0);
-    cost += money(row.metrics?.cost_micros);
+    cost += money(row.metrics?.costMicros);
     conversions += Number(row.metrics?.conversions ?? 0);
-    conversionValue += Number(row.metrics?.conversions_value ?? 0);
+    conversionValue += Number(row.metrics?.conversionsValue ?? 0);
   }
 
   return { impressions, clicks, cost, conversions, conversionValue };

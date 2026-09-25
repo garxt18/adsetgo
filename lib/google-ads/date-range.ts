@@ -41,6 +41,20 @@ function addDays(date: Date, days: number): Date {
   return next;
 }
 
+/** Every calendar day from start to end inclusive, as YYYY-MM-DD. */
+export function eachDay(startDate: string, endDate: string): string[] {
+  const days: string[] = [];
+  const cursor = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+
+  while (cursor <= end && days.length < 400) {
+    days.push(iso(cursor));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  return days;
+}
+
 function dayCount(start: string, end: string): number {
   const ms = Date.parse(end) - Date.parse(start);
   return Math.round(ms / 86_400_000) + 1;

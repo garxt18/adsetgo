@@ -43,6 +43,20 @@ own, so `state` is the only thing tying a code to an agency.
 If Google later rejects the stored token, the agency is marked `expired` and the
 dashboard shows a reconnect prompt rather than claiming to be connected.
 
+## Calls
+
+Each report has a **Calls** tab for the client and for the agency: calls,
+answered, missed, average call length, calls per day, the campaigns that
+brought them, and whether they were dialled from the ad or from the website.
+
+The figures come from Google Ads (`call_view`), so they cover only calls to
+Google's forwarding numbers: call assets, call-only ads, and website numbers
+with call reporting switched on. Calls from other channels are invisible to
+Google, and it hides callers' numbers, so there are no "first-time caller" or
+Facebook/Bing figures; those would need a call-tracking service such as
+CallRail. The tab loads through its own route (`/api/google-ads/calls`) only
+when opened, so the Google queries it costs are spent only when someone looks.
+
 ## Password reset
 
 There are two ways back in for someone who forgot their password.
@@ -103,6 +117,12 @@ audit entries are deleted with it.
 
 ## Google Ads API notes
 
+- **Queries are snake_case, replies are camelCase.** A query selects
+  `metrics.cost_micros`; the JSON reply calls it `metrics.costMicros`. Row types
+  (`GoogleAdsRow`, `CallRow` in `lib/google-ads/auth.ts`) follow the reply, and
+  the sample generator writes the reply's spelling too. Reading the query's
+  spelling once made every live report show ₹0 spend while sample mode looked
+  fine; `report.test.ts` now fails if that happens again.
 - The API version lives in exactly one place, `GOOGLE_ADS_API_VERSION` in
   `lib/google-ads/auth.ts`. Google sunsets versions (v18 and below now 404), and
   duplicated copies drift apart.
@@ -164,6 +184,7 @@ lib/
   dev-only-env.ts         refuses deployments carrying dev-login variables
   google-ads/auth.ts      tokens, account tree and metrics queries
   google-ads/report.ts    the report arithmetic, shared by every figure on screen
+  google-ads/calls.ts     the Calls tab's arithmetic
   google-ads/format.ts    pure helpers, safe for browser bundles
   google-ads/state.ts     signed OAuth state
   google-ads/date-range.ts  report periods and their labels, shared by routes and pages
