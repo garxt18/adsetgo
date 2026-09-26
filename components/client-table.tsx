@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { DeltaChip, Sparkline, type Point } from "@/components/charts";
 import { StatusPill } from "@/components/ui/status-pill";
 import { formatCurrency, formatNumber } from "@/lib/format";
+import { formatGoogleAdsCustomerId } from "@/lib/google-ads/format";
 
 export type ClientRow = {
   id: string;
@@ -68,12 +69,14 @@ export function ClientTable({
 
   const visible = useMemo(() => {
     const term = query.trim().toLowerCase();
+    // Ids are stored as ten digits, so "358-312" is matched on its digits.
+    const digits = term.replace(/\D/g, "");
     const filtered = term
       ? clients.filter(
           (client) =>
             client.name.toLowerCase().includes(term) ||
             client.email.toLowerCase().includes(term) ||
-            (client.googleAdsCustomerId ?? "").includes(term)
+            (digits !== "" && (client.googleAdsCustomerId ?? "").includes(digits))
         )
       : clients;
 
@@ -174,7 +177,9 @@ export function ClientTable({
                           {client.name}
                         </span>
                         <span className="block truncate text-xs text-ink-faint">
-                          {client.googleAdsCustomerId ?? "No account linked"}
+                          {client.googleAdsCustomerId
+                            ? formatGoogleAdsCustomerId(client.googleAdsCustomerId)
+                            : "No account linked"}
                         </span>
                       </span>
                     </Link>

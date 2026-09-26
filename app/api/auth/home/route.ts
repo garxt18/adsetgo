@@ -34,6 +34,20 @@ export async function GET() {
     return NextResponse.json({ path: null }, { status: 404 });
   }
 
+  if (profile.role === "client" && profile.client_id) {
+    // Arriving here signed in means the client has accepted their invitation,
+    // so their record stops saying "invited". Nothing else marks it: the only
+    // code that did was the public sign-up route removed for letting anyone
+    // register as any agency's client, and since then every client stayed
+    // "invited" for good. Only the caller's own record, and only once.
+    await supabaseAdmin
+      .from("clients")
+      .update({ status: "active" })
+      .eq("id", profile.client_id)
+      .eq("agency_id", profile.agency_id)
+      .eq("status", "invited");
+  }
+
   return NextResponse.json({
     path:
       profile.role === "client"
