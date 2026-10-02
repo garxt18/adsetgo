@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { percentChange, resolveRange, shortDay, span } from "./date-range.ts";
+import { checkCustomRange, percentChange, resolveRange, shortDay, span } from "./date-range.ts";
 
 // A fixed "now" so these assertions do not drift with the calendar.
 const NOW = new Date("2026-09-24T09:00:00Z");
@@ -87,4 +87,47 @@ test("a period reads as a span, with the year only when asked", () => {
   assert.equal(span("2026-03-01", "2026-03-07"), "1 Mar – 7 Mar 2026");
   assert.equal(span("2026-03-01", "2026-03-07", false), "1 Mar – 7 Mar");
   assert.equal(shortDay("not a date"), "not a date");
+  // A single day reads as that day.
+  assert.equal(span("2026-09-10", "2026-09-10"), "10 Sept 2026");
+  assert.equal(span("2026-09-10", "2026-09-10", false), "10 Sept");
+});
+
+test("a custom range covers exactly the chosen days, compared with as many before", () => {
+  const range = resolveRange("2026-09-01..2026-09-15", NOW);
+
+  assert.equal(range.key, "custom");
+  assert.equal(range.start, "2026-09-01");
+  assert.equal(range.end, "2026-09-15");
+  assert.equal(days(range.start, range.end), 15);
+  assert.equal(range.previousEnd, "2026-08-31");
+  assert.equal(days(range.previousStart, range.previousEnd), 15);
+});
+
+test("a single day is a valid range", () => {
+  const range = resolveRange("2026-09-10..2026-09-10", NOW);
+  assert.equal(range.key, "custom");
+  assert.equal(range.previousStart, "2026-09-09");
+});
+
+test("a custom range that cannot be used is refused with a reason", () => {
+  // NOW is 24 September, so the 23rd is the last day with complete figures.
+  assert.equal(checkCustomRange("2026-09-01", "2026-09-23", NOW).ok, true);
+
+  for (const [start, end] of [
+    ["2026-09-15", "2026-09-01"], // backwards
+    ["2026-09-01", "2026-09-24"], // includes today
+    ["2026-09-01", "2026-10-30"], // the future
+    ["2025-01-01", "2026-09-01"], // more than 366 days
+    ["2026-02-30", "2026-03-05"], // not a real date
+    ["", "2026-09-05"],
+  ]) {
+    const result = checkCustomRange(start, end, NOW);
+    assert.equal(result.ok, false, `${start}..${end}`);
+  }
+});
+
+test("the server falls back to the default week for a range it would refuse", () => {
+  for (const bad of ["2026-09-15..2026-09-01", "2026-09-01..2026-12-01", "2026-9-1..2026-9-5"]) {
+    assert.equal(resolveRange(bad, NOW).key, "last_7_days", bad);
+  }
 });

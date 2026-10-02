@@ -12,7 +12,7 @@ import {
   type TrendRow,
 } from "@/components/client-report";
 import { Card, EmptyState, SampleBanner } from "@/components/ui/card";
-import { span, type Period, type RangeKey } from "@/lib/google-ads/date-range";
+import { span, type Period, type RangeValue } from "@/lib/google-ads/date-range";
 import { useClientData, type Loaded } from "@/components/use-client-data";
 
 /** One client's report, as /api/google-ads returns it. */
@@ -33,8 +33,8 @@ export type ReportState = {
   status: Loaded<Report>["status"];
   message: string;
   clientId: string;
-  range: RangeKey;
-  selectRange: (next: RangeKey) => void;
+  range: RangeValue;
+  selectRange: (next: RangeValue) => void;
 };
 
 /** The main report for the chosen period, plus the period control. */
@@ -42,7 +42,7 @@ export function useReport(
   clientId: string,
   messages: { notConfigured: string; failed: string }
 ): ReportState {
-  const [range, setRange] = useState<RangeKey>("last_7_days");
+  const [range, setRange] = useState<RangeValue>("last_7_days");
   const { data, status, message } = useClientData<Report>("/api/google-ads", clientId, range, messages);
 
   return { report: data, status, message, clientId, range, selectRange: setRange };

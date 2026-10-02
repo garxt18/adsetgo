@@ -89,6 +89,12 @@ export function LineChart({
 
   if (points.length === 0) return <NoData height={height} label={emptyLabel} />;
 
+  // A line needs two points. One day (a custom range of a single day) has no
+  // trend to draw, so its value is said rather than drawn as an empty chart.
+  if (points.length === 1) {
+    return <NoData height={height} label={`One day only: ${format(points[0].value)} on ${points[0].label}`} />;
+  }
+
   const width = 600;
   // Both lines share one scale, otherwise the comparison is drawn to a
   // different ruler and the shapes cannot honestly be compared.

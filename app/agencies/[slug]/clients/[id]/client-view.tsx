@@ -5,15 +5,16 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { signOut } from "@/lib/sign-out";
-import { RANGE_OPTIONS, span } from "@/lib/google-ads/date-range";
+import { span } from "@/lib/google-ads/date-range";
 import { formatGoogleAdsCustomerId } from "@/lib/google-ads/format";
 import { AgencyShell } from "@/components/agency-shell";
 import type { ReportTab } from "@/components/client-report";
+import { DownloadPdfButton } from "@/components/download-pdf";
 import { ReportPanel, useReport } from "@/components/report-panel";
 import { ResetLinkButton } from "@/components/reset-link-button";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy";
-import { Segmented } from "@/components/ui/segmented";
+import { PeriodPicker } from "@/components/ui/period-picker";
 import { StatusPill } from "@/components/ui/status-pill";
 import { EditClientButton, RemoveClientButton } from "./client-actions";
 
@@ -118,13 +119,13 @@ export function ClientView({
           />
           <TabButton label="Calls" active={tab === "calls"} onClick={() => setTab("calls")} />
         </div>
-        <div className="pb-2">
-          <Segmented
-            label="Report period"
-            options={RANGE_OPTIONS}
-            value={state.range}
-            onChange={state.selectRange}
+        <div className="flex items-center gap-2 pb-2">
+          {/* The same PDF the client downloads, for sending to them. */}
+          <DownloadPdfButton
+            href={`/api/google-ads/pdf?clientId=${client.id}&dateRange=${encodeURIComponent(state.range)}`}
+            disabled={state.status !== "ready"}
           />
+          <PeriodPicker value={state.range} onChange={state.selectRange} />
         </div>
       </div>
 

@@ -5,7 +5,7 @@ import { Card, CardHeader, EmptyState, StatTile } from "@/components/ui/card";
 import { useClientData } from "@/components/use-client-data";
 import { formatNumber } from "@/lib/format";
 import type { CallReport } from "@/lib/google-ads/calls";
-import { shortDay, type RangeKey } from "@/lib/google-ads/date-range";
+import { shortDay, type RangeValue } from "@/lib/google-ads/date-range";
 
 /** 248 seconds reads as "4:08". */
 function minutes(seconds: number): string {
@@ -28,7 +28,7 @@ function SectionTitle({ children }: { children: string }) {
  * call assets, call-only ads and website numbers with call reporting on. The
  * empty state says so, since "no calls" usually means "no call tracking".
  */
-export function CallReportView({ clientId, range }: { clientId: string; range: RangeKey }) {
+export function CallReportView({ clientId, range }: { clientId: string; range: RangeValue }) {
   const { data, status, message } = useClientData<CallReport>("/api/google-ads/calls", clientId, range);
 
   if (status === "unavailable") {

@@ -7,6 +7,7 @@ import { redirectHome } from "@/lib/home-path";
 import { signOut } from "@/lib/sign-out";
 import { AgencyShell } from "@/components/agency-shell";
 import { ClientTable, type ClientRow } from "@/components/client-table";
+import { DownloadPdfButton } from "@/components/download-pdf";
 import { GoogleAdsAccountPicker, GoogleAdsAccounts } from "@/components/google-ads-accounts";
 import { Sparkline, type Point } from "@/components/charts";
 import { Button } from "@/components/ui/button";
@@ -14,9 +15,9 @@ import { Card, SampleBanner, StatTile } from "@/components/ui/card";
 import { CopyField } from "@/components/ui/copy";
 import { Field } from "@/components/ui/field";
 import { Modal } from "@/components/ui/modal";
-import { Segmented } from "@/components/ui/segmented";
+import { PeriodPicker } from "@/components/ui/period-picker";
 import { formatCurrency, formatNumber } from "@/lib/format";
-import { RANGE_OPTIONS, span, type Period, type RangeKey } from "@/lib/google-ads/date-range";
+import { span, type Period, type RangeValue } from "@/lib/google-ads/date-range";
 
 type Agency = {
   id: string;
@@ -45,7 +46,7 @@ export default function AgencyDashboard() {
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [totals, setTotals] = useState<Totals | null>(null);
   const [period, setPeriod] = useState<Period | null>(null);
-  const [dateRange, setDateRange] = useState<RangeKey>("last_7_days");
+  const [dateRange, setDateRange] = useState<RangeValue>("last_7_days");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [isSample, setIsSample] = useState(false);
@@ -238,12 +239,12 @@ export default function AgencyDashboard() {
                 {period ? span(period.start, period.end) : ""}
               </p>
             </div>
-            <Segmented
-              label="Report period"
-              options={RANGE_OPTIONS}
-              value={dateRange}
-              onChange={setDateRange}
-            />
+            <div className="flex flex-wrap items-center gap-2">
+              <DownloadPdfButton
+                href={`/api/agencies/${slug}/overview/pdf?dateRange=${encodeURIComponent(dateRange)}`}
+              />
+              <PeriodPicker value={dateRange} onChange={setDateRange} />
+            </div>
           </div>
 
           <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

@@ -5,35 +5,14 @@ import { useRouter } from "next/navigation";
 
 import { signOut } from "@/lib/sign-out";
 import { formatCurrency, formatNumber } from "@/lib/format";
-import { RANGE_OPTIONS, span, type Period } from "@/lib/google-ads/date-range";
+import { span } from "@/lib/google-ads/date-range";
 import { ReportPanel, useReport } from "@/components/report-panel";
-import type { Campaign, ReportTab } from "@/components/client-report";
+import type { ReportTab } from "@/components/client-report";
+import { DownloadPdfButton } from "@/components/download-pdf";
 import { Button } from "@/components/ui/button";
-import { Segmented } from "@/components/ui/segmented";
+import { PeriodPicker } from "@/components/ui/period-picker";
 import { ThemeToggle } from "@/components/ui/theme";
 import { Identity, TopBar, TopBarTab } from "@/components/ui/top-bar";
-
-/** A report someone can keep, without needing an export service. */
-function downloadCsv(name: string, period: Period | undefined, campaigns: Campaign[]) {
-  const header = ["Campaign", "Status", "Impressions", "Clicks", "Spend", "Conversions"];
-  const rows = campaigns.map((c) => [
-    `"${c.name.replace(/"/g, '""')}"`,
-    c.status,
-    c.impressions,
-    c.clicks,
-    c.cost,
-    c.conversions,
-  ]);
-
-  const csv = [header.join(","), ...rows.map((row) => row.join(","))].join("\n");
-  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${name.replace(/\s+/g, "-").toLowerCase()}-${period?.start ?? "report"}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
-}
 
 /**
  * The client's own report. Who they are and which agency prepared it arrive
@@ -91,14 +70,11 @@ export function ClientPortal({
         }
         actions={
           <>
-            <Button
-              variant="secondary"
-              size="nav"
-              onClick={() => downloadCsv(client.name, report?.period, campaigns)}
-              disabled={campaigns.length === 0}
-            >
-              Download CSV
-            </Button>
+            {/* The whole report, for the period on screen. */}
+            <DownloadPdfButton
+              href={`/api/google-ads/pdf?dateRange=${encodeURIComponent(state.range)}`}
+              disabled={state.status !== "ready"}
+            />
             <ThemeToggle />
             <Button variant="secondary" size="nav" onClick={handleLogout}>
               Sign out
@@ -121,12 +97,7 @@ export function ClientPortal({
             </p>
           </div>
 
-          <Segmented
-            label="Report period"
-            options={RANGE_OPTIONS}
-            value={state.range}
-            onChange={state.selectRange}
-          />
+          <PeriodPicker value={state.range} onChange={state.selectRange} />
         </div>
 
         <ReportPanel state={state} tab={tab} />

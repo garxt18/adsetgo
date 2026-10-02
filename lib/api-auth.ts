@@ -132,7 +132,10 @@ export function requireClientAccess(
 /** The client a report is about, with the ids a Google Ads query needs. */
 export type ReportClient = {
   id: string;
+  name: string;
+  email: string;
   agencyId: string;
+  agencyName: string;
   /** Ten digits, or "" when no account is linked yet. */
   customerId: string;
   /** Ten digits, or "" when the agency has not recorded its manager account. */
@@ -159,7 +162,9 @@ export async function requireReportClient(
   // refresh token, which has no reason to be loaded here.
   const { data: client } = await supabaseAdmin
     .from("clients")
-    .select("id, agency_id, google_ads_customer_id, agencies:agency_id(google_ads_manager_customer_id)")
+    .select(
+      "id, name, email, agency_id, google_ads_customer_id, agencies:agency_id(name, google_ads_manager_customer_id)"
+    )
     .eq("id", clientId)
     .maybeSingle();
 
@@ -171,12 +176,18 @@ export async function requireReportClient(
 
   // A to-one join arrives as one object; without generated database types the
   // client library cannot know that and types it as a list.
-  const agency = client.agencies as unknown as { google_ads_manager_customer_id: string | null } | null;
+  const agency = client.agencies as unknown as {
+    name: string;
+    google_ads_manager_customer_id: string | null;
+  } | null;
 
   return {
     client: {
       id: client.id,
+      name: client.name,
+      email: client.email,
       agencyId: client.agency_id,
+      agencyName: agency?.name ?? "",
       customerId: normalizeGoogleAdsCustomerId(client.google_ads_customer_id),
       managerCustomerId: normalizeGoogleAdsCustomerId(agency?.google_ads_manager_customer_id),
     },

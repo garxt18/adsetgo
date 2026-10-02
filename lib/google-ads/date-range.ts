@@ -14,8 +14,15 @@ export type RangeKey =
   | "this_month"
   | "last_month";
 
+/**
+ * What a report request names: a preset, or a custom range written
+ * "2026-09-01..2026-09-15" (inclusive). One string, so every report route
+ * passes it on unchanged in its `dateRange` parameter.
+ */
+export type RangeValue = RangeKey | `${string}..${string}`;
+
 export type ResolvedRange = {
-  key: RangeKey;
+  key: RangeKey | "custom";
   label: string;
   start: string;
   end: string;
@@ -64,11 +71,59 @@ export function isRangeKey(value: string): value is RangeKey {
   return value in LABELS;
 }
 
+/** Long enough for a year-on-year look; the previous window doubles the query. */
+export const MAX_CUSTOM_DAYS = 366;
+
+const CUSTOM = /^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/;
+
+/**
+ * The last day a report may include: yesterday, by the server's (UTC) clock.
+ * The date pickers use this too, so they never offer a day the server would
+ * refuse.
+ */
+export function latestReportDay(now = new Date()): string {
+  return iso(addDays(now, -1));
+}
+
+export function customRange(start: string, end: string): RangeValue {
+  return `${start}..${end}`;
+}
+
+/**
+ * The days a custom range covers, or why it cannot be used. The pickers show
+ * the reason; the server treats any reason as "not a range" (see resolveRange).
+ */
+export function checkCustomRange(
+  start: string,
+  end: string,
+  now = new Date()
+): { ok: true } | { ok: false; reason: string } {
+  const real = (day: string) => /^\d{4}-\d{2}-\d{2}$/.test(day) && iso(new Date(`${day}T00:00:00Z`)) === day;
+
+  if (!real(start) || !real(end)) return { ok: false, reason: "Choose both a start and an end date." };
+  if (start > end) return { ok: false, reason: "The start date must come before the end date." };
+  if (end > latestReportDay(now)) {
+    return { ok: false, reason: "The range can end yesterday at the latest: Google reports today only partly." };
+  }
+  if (dayCount(start, end) > MAX_CUSTOM_DAYS) {
+    return { ok: false, reason: `A range can cover at most ${MAX_CUSTOM_DAYS} days.` };
+  }
+  return { ok: true };
+}
+
 /**
  * Ranges end yesterday: Google reports the current day only partially, and a
  * half-written day makes every comparison look like a collapse.
  */
 export function resolveRange(input: string, now = new Date()): ResolvedRange {
+  const custom = input.match(CUSTOM);
+
+  // A custom range the pickers would have refused is treated like any other
+  // unrecognised value: the default week, whose dates the page then shows.
+  if (custom && checkCustomRange(custom[1], custom[2], now).ok) {
+    return withPrevious("custom", "Custom range", custom[1], custom[2]);
+  }
+
   const key: RangeKey = isRangeKey(input) ? input : "last_7_days";
   const yesterday = addDays(now, -1);
 
@@ -90,11 +145,16 @@ export function resolveRange(input: string, now = new Date()): ResolvedRange {
     end = iso(yesterday);
   }
 
+  return withPrevious(key, LABELS[key], start, end);
+}
+
+/** A range plus the window of the same length just before it, for comparison. */
+function withPrevious(key: ResolvedRange["key"], label: string, start: string, end: string): ResolvedRange {
   const length = dayCount(start, end);
   const previousEnd = iso(addDays(new Date(start), -1));
   const previousStart = iso(addDays(new Date(start), -length));
 
-  return { key, label: LABELS[key], start, end, previousStart, previousEnd };
+  return { key, label, start, end, previousStart, previousEnd };
 }
 
 /** Percentage change, or null when there is no prior figure to compare against. */
@@ -142,5 +202,7 @@ export function shortDay(date: string): string {
 /** "17 Sept – 23 Sept 2026", or without the year where space is short. */
 export function span(start: string, end: string, withYear = true): string {
   const to = new Date(end);
+  // A one-day custom range reads as that day, not "10 Sept – 10 Sept".
+  if (start === end) return withYear && !Number.isNaN(to.getTime()) ? DAY_YEAR.format(to) : shortDay(end);
   return `${shortDay(start)} – ${withYear && !Number.isNaN(to.getTime()) ? DAY_YEAR.format(to) : shortDay(end)}`;
 }

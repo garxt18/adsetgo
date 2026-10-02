@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import type { RangeKey } from "@/lib/google-ads/date-range";
+import type { RangeValue } from "@/lib/google-ads/date-range";
 
 export type Loaded<T> = {
   data: T | null;
@@ -26,7 +26,7 @@ const UNAVAILABLE = {
 export function useClientData<T>(
   endpoint: string,
   clientId: string,
-  range: RangeKey,
+  range: RangeValue,
   messages: { notConfigured: string; failed: string } = UNAVAILABLE
 ): Loaded<T> {
   const key = `${endpoint}|${clientId}|${range}`;

@@ -57,6 +57,34 @@ Facebook/Bing figures; those would need a call-tracking service such as
 CallRail. The tab loads through its own route (`/api/google-ads/calls`) only
 when opened, so the Google queries it costs are spent only when someone looks.
 
+## Report periods
+
+Every report screen has the presets (7, 14 and 30 days, this month, last month)
+and a **Custom** range. A custom range travels as one value,
+`dateRange=2026-09-01..2026-09-15`, so the figures, the Calls tab and the PDF
+all read the same days through `resolveRange` in `lib/google-ads/date-range.ts`.
+It can cover up to 366 days and end yesterday at the latest (Google reports
+today only partly), and it is compared with the same number of days just
+before. The picker refuses anything else with a reason; the server, given a
+range the picker would refuse, falls back to the default week and shows its
+dates.
+
+## PDF reports
+
+A client downloads their whole report as a PDF from their dashboard, and an
+agency can download the same PDF from that client's page. An agency also
+downloads its own overview (summary figures and the client list). Each PDF
+covers the period on screen and is built on the server with
+`@react-pdf/renderer`: `/api/google-ads/pdf` for a client, and
+`/api/agencies/[slug]/overview/pdf` for an agency. Both use the same access
+checks and the same cached Google Ads data as the dashboards, so downloading a
+report already on screen costs no extra quota.
+
+The PDF's wording and figures come from the dashboard's own sources
+(`lib/report-copy.ts`, `lib/google-ads/report.ts`, `lib/agency-overview.ts`),
+so the two cannot disagree. The standard PDF fonts cannot draw ₹, so Inter is
+embedded from `lib/pdf/fonts/` (SIL Open Font License, `OFL.txt` alongside).
+
 ## Password reset
 
 There are two ways back in for someone who forgot their password.
@@ -185,6 +213,9 @@ lib/
   google-ads/auth.ts      tokens, account tree and metrics queries
   google-ads/report.ts    the report arithmetic, shared by every figure on screen
   google-ads/calls.ts     the Calls tab's arithmetic
+  report-copy.ts          metric names and the summary sentence, for screen and PDF
+  agency-overview.ts      the agency's client list with figures, for screen and PDF
+  pdf/                    PDF reports: kit.tsx (layout, charts), one file per report, fonts
   google-ads/format.ts    pure helpers, safe for browser bundles
   google-ads/state.ts     signed OAuth state
   google-ads/date-range.ts  report periods and their labels, shared by routes and pages
@@ -200,6 +231,12 @@ because `npm test` runs those files directly through Node, which resolves
 neither the alias nor extensionless paths.
 
 ## Security rules that must not be relaxed
+
+- **PDF fonts must stay traced into the deployment.** `lib/pdf/kit.tsx` reads
+  them from disk by a path built at run time, which output tracing cannot see,
+  so `next.config.ts` lists them under `outputFileTracingIncludes` for both PDF
+  routes. A new PDF route needs adding there too, or its downloads fail on
+  Vercel while working locally.
 
 - **Every API route authorises itself.** The proxy (`proxy.ts`) matcher covers only
   `/dashboard` and `/agencies`, never `/api/*`, so there is no ambient

@@ -12,7 +12,13 @@ if (devOnlyError) {
 }
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // The PDF routes read their embedded fonts from disk (lib/pdf/kit.tsx). A
+  // path built at run time is invisible to output tracing, so without this a
+  // deployed function would have no fonts and every download would fail.
+  outputFileTracingIncludes: {
+    "/api/google-ads/pdf": ["./lib/pdf/fonts/*.ttf"],
+    "/api/agencies/[slug]/overview/pdf": ["./lib/pdf/fonts/*.ttf"],
+  },
 };
 
 export default nextConfig;
