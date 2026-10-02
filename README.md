@@ -71,10 +71,13 @@ dates.
 
 ## PDF reports
 
-A client downloads their campaigns as a CSV (for a spreadsheet) and their
-whole report as a PDF from their dashboard, and an
-agency can download the same PDF from that client's page. An agency also
-downloads its own overview (summary figures and the client list). Each PDF
+Every report screen offers **Download CSV** and **Download PDF** for the period
+on screen. On the client's dashboard and the agency's page for a client, the CSV
+is the period's campaigns and the PDF is the whole report; on the agency
+dashboard, the CSV is the client list and the PDF the agency overview. CSVs are
+built in the browser from the figures already loaded (`components/download-csv.tsx`),
+with money and rates as plain numbers a spreadsheet can add up, and cells that
+a spreadsheet would run as a formula neutralised (`lib/export.ts`). Each PDF
 covers the period on screen and is built on the server with
 `@react-pdf/renderer`: `/api/google-ads/pdf` for a client, and
 `/api/agencies/[slug]/overview/pdf` for an agency. Both use the same access

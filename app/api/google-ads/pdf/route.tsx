@@ -7,7 +7,8 @@ import { resolveRange } from "@/lib/google-ads/date-range";
 import { buildReport } from "@/lib/google-ads/report";
 import { isSampleDataEnabled } from "@/lib/google-ads/sample-data";
 import { ClientReportPdf } from "@/lib/pdf/client-report";
-import { fileSlug, pdfResponse } from "@/lib/pdf/kit";
+import { fileSlug } from "@/lib/export";
+import { pdfResponse } from "@/lib/pdf/kit";
 
 /**
  * One client's report for a period as a PDF download: everything on their

@@ -74,19 +74,6 @@ export const s = StyleSheet.create({
   row: { flexDirection: "row" },
 });
 
-/** "Acme Corp" → "acme-corp", for file names. */
-export function fileSlug(text: string): string {
-  return (
-    text
-      .normalize("NFKD")
-      .replace(/[^\w\s-]/g, "")
-      .trim()
-      .toLowerCase()
-      .replace(/[\s_-]+/g, "-")
-      .slice(0, 60) || "report"
-  );
-}
-
 /**
  * "2 October 2026, 10:42 pm IST". The platform reports in rupees for Indian
  * agencies (lib/format.ts), so the stamp uses India's clock rather than the

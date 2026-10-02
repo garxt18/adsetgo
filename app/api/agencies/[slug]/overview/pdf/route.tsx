@@ -4,7 +4,8 @@ import { buildAgencyOverview } from "@/lib/agency-overview";
 import { requireAgency } from "@/lib/api-auth";
 import { resolveRange } from "@/lib/google-ads/date-range";
 import { AgencyReportPdf } from "@/lib/pdf/agency-report";
-import { fileSlug, pdfResponse } from "@/lib/pdf/kit";
+import { fileSlug } from "@/lib/export";
+import { pdfResponse } from "@/lib/pdf/kit";
 
 /** The agency dashboard's figures for a period, as a PDF download. */
 export async function GET(

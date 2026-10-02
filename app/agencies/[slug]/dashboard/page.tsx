@@ -7,6 +7,7 @@ import { redirectHome } from "@/lib/home-path";
 import { signOut } from "@/lib/sign-out";
 import { AgencyShell } from "@/components/agency-shell";
 import { ClientTable, type ClientRow } from "@/components/client-table";
+import { DownloadCsvButton } from "@/components/download-csv";
 import { DownloadPdfButton } from "@/components/download-pdf";
 import { GoogleAdsAccountPicker, GoogleAdsAccounts } from "@/components/google-ads-accounts";
 import { Sparkline, type Point } from "@/components/charts";
@@ -16,7 +17,9 @@ import { CopyField } from "@/components/ui/copy";
 import { Field } from "@/components/ui/field";
 import { Modal } from "@/components/ui/modal";
 import { PeriodPicker } from "@/components/ui/period-picker";
+import { fileSlug } from "@/lib/export";
 import { formatCurrency, formatNumber } from "@/lib/format";
+import { formatGoogleAdsCustomerId } from "@/lib/google-ads/format";
 import { span, type Period, type RangeValue } from "@/lib/google-ads/date-range";
 
 type Agency = {
@@ -240,6 +243,40 @@ export default function AgencyDashboard() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <DownloadCsvButton
+                filename={`${fileSlug(agency.name)}-clients-${
+                  period ? `${period.start}-to-${period.end}` : "report"
+                }.csv`}
+                rows={() => [
+                  [
+                    "Client",
+                    "Google Ads account",
+                    "Status",
+                    "Spend (INR)",
+                    "Spend change (%)",
+                    "Conversions",
+                    "Conversions change (%)",
+                    "Clicks",
+                    "Impressions",
+                    "Cost per conversion (INR)",
+                  ],
+                  // Highest spend first, as the list and the PDF sort it.
+                  ...[...clients]
+                    .sort((a, b) => (b.metrics?.cost ?? -1) - (a.metrics?.cost ?? -1))
+                    .map((c) => [
+                      c.name,
+                      c.googleAdsCustomerId ? formatGoogleAdsCustomerId(c.googleAdsCustomerId) : "",
+                      c.status,
+                      c.metrics?.cost,
+                      c.change === null ? null : Math.round(c.change * 10) / 10,
+                      c.metrics?.conversions,
+                      c.conversionChange === null ? null : Math.round(c.conversionChange * 10) / 10,
+                      c.metrics?.clicks,
+                      c.metrics?.impressions,
+                      c.metrics && c.metrics.conversions > 0 ? c.metrics.costPerConversion : null,
+                    ]),
+                ]}
+              />
               <DownloadPdfButton
                 href={`/api/agencies/${slug}/overview/pdf?dateRange=${encodeURIComponent(dateRange)}`}
               />

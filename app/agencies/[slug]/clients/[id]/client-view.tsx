@@ -9,6 +9,7 @@ import { span } from "@/lib/google-ads/date-range";
 import { formatGoogleAdsCustomerId } from "@/lib/google-ads/format";
 import { AgencyShell } from "@/components/agency-shell";
 import type { ReportTab } from "@/components/client-report";
+import { CampaignCsvButton } from "@/components/download-csv";
 import { DownloadPdfButton } from "@/components/download-pdf";
 import { ReportPanel, useReport } from "@/components/report-panel";
 import { ResetLinkButton } from "@/components/reset-link-button";
@@ -121,6 +122,12 @@ export function ClientView({
         </div>
         <div className="flex items-center gap-2 pb-2">
           {/* The same PDF the client downloads, for sending to them. */}
+          <CampaignCsvButton
+            clientName={client.name}
+            period={report?.period}
+            campaigns={report?.campaigns ?? []}
+            disabled={state.status !== "ready"}
+          />
           <DownloadPdfButton
             href={`/api/google-ads/pdf?clientId=${client.id}&dateRange=${encodeURIComponent(state.range)}`}
             disabled={state.status !== "ready"}
