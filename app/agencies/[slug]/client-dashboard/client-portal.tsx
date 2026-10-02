@@ -104,7 +104,10 @@ export function ClientPortal({
               variant="secondary"
               size="nav"
               onClick={() => downloadCsv(client.name, report?.period, campaigns)}
-              disabled={campaigns.length === 0}
+              // Same rule as the PDF: usable once the report has loaded. A
+              // period with no campaigns exports just the headings; disabling
+              // it instead left a faint button that read as missing.
+              disabled={state.status !== "ready"}
             >
               Download CSV
             </Button>

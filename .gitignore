@@ -40,3 +40,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Downloaded reports. A browser saving into the project folder put a real
+# client's PDF into git once; reports are client data, never source.
+/*.pdf
+/*.csv
