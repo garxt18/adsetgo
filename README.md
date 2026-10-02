@@ -71,7 +71,8 @@ dates.
 
 ## PDF reports
 
-A client downloads their whole report as a PDF from their dashboard, and an
+A client downloads their campaigns as a CSV (for a spreadsheet) and their
+whole report as a PDF from their dashboard, and an
 agency can download the same PDF from that client's page. An agency also
 downloads its own overview (summary figures and the client list). Each PDF
 covers the period on screen and is built on the server with

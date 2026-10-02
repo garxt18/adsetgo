@@ -5,14 +5,43 @@ import { useRouter } from "next/navigation";
 
 import { signOut } from "@/lib/sign-out";
 import { formatCurrency, formatNumber } from "@/lib/format";
-import { span } from "@/lib/google-ads/date-range";
+import { span, type Period } from "@/lib/google-ads/date-range";
 import { ReportPanel, useReport } from "@/components/report-panel";
-import type { ReportTab } from "@/components/client-report";
+import type { Campaign, ReportTab } from "@/components/client-report";
 import { DownloadPdfButton } from "@/components/download-pdf";
 import { Button } from "@/components/ui/button";
 import { PeriodPicker } from "@/components/ui/period-picker";
 import { ThemeToggle } from "@/components/ui/theme";
 import { Identity, TopBar, TopBarTab } from "@/components/ui/top-bar";
+
+/**
+ * One CSV cell. Quoted, with inner quotes doubled; and a value starting with
+ * = + - or @ gets a leading apostrophe, because a spreadsheet would otherwise
+ * run it as a formula (a campaign named "=HYPERLINK(...)" is enough).
+ */
+function csvCell(value: string | number): string {
+  const text = String(value);
+  const safe = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+  return `"${safe.replace(/"/g, '""')}"`;
+}
+
+/** The period's campaigns as a CSV the client can open in a spreadsheet. */
+function downloadCsv(name: string, period: Period | undefined, campaigns: Campaign[]) {
+  const header = ["Campaign", "Status", "Impressions", "Clicks", "Spend", "Conversions"];
+  const rows = campaigns.map((c) => [c.name, c.status, c.impressions, c.clicks, c.cost, c.conversions]);
+
+  const csv = [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+
+  const link = document.createElement("a");
+  link.href = url;
+  // Both dates: with custom ranges, the start alone no longer names the period.
+  link.download = `${name.replace(/\s+/g, "-").toLowerCase()}-campaigns-${
+    period ? `${period.start}-to-${period.end}` : "report"
+  }.csv`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
 
 /**
  * The client's own report. Who they are and which agency prepared it arrive
@@ -70,7 +99,15 @@ export function ClientPortal({
         }
         actions={
           <>
-            {/* The whole report, for the period on screen. */}
+            {/* The period's campaigns as a spreadsheet, and the whole report as a PDF. */}
+            <Button
+              variant="secondary"
+              size="nav"
+              onClick={() => downloadCsv(client.name, report?.period, campaigns)}
+              disabled={campaigns.length === 0}
+            >
+              Download CSV
+            </Button>
             <DownloadPdfButton
               href={`/api/google-ads/pdf?dateRange=${encodeURIComponent(state.range)}`}
               disabled={state.status !== "ready"}
