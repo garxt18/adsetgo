@@ -50,7 +50,7 @@ export function TopBar({
       {nav ? (
         <nav
           aria-label="Main"
-          className="mx-auto flex max-w-[1400px] items-center gap-1 overflow-x-auto px-5 pb-2 md:hidden"
+          className="relative mx-auto flex max-w-[1400px] items-center gap-1 overflow-x-auto px-5 pb-2 md:hidden"
         >
           {nav}
         </nav>
@@ -96,12 +96,13 @@ export function Identity({
   return href ? (
     <Link
       href={href}
-      className="flex min-w-0 items-center gap-2.5 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+      className="flex min-w-9 items-center gap-2.5 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
     >
       {body}
     </Link>
   ) : (
-    <div className="flex min-w-0 items-center gap-2.5">{body}</div>
+    // min-w-9: the name may shrink to "…", the 36px badge never below itself.
+    <div className="flex min-w-9 items-center gap-2.5">{body}</div>
   );
 }
 

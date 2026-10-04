@@ -118,7 +118,10 @@ export function PeriodPicker({
             // checking itself is ours, so the reason reads as a sentence
             // rather than the browser's generic tooltip.
             noValidate
-            className="animate-pop absolute right-0 top-full z-30 mt-2 w-72 rounded-2xl bg-surface p-4 shadow-xl ring-1 ring-line"
+            // Desktop: drops from the button's right edge. Phone: the button
+            // wraps to the start of a row, so a right-anchored panel opened
+            // half off the left edge; there it is pinned to the screen instead.
+            className="animate-pop absolute right-0 top-full z-30 mt-2 w-72 rounded-2xl bg-surface p-4 shadow-xl ring-1 ring-line max-sm:fixed max-sm:inset-x-4 max-sm:top-20 max-sm:mt-0 max-sm:w-auto"
           >
             <p className="text-sm font-medium text-ink">Custom range</p>
             <p className="mt-0.5 text-xs text-ink-soft">

@@ -70,7 +70,7 @@ export default function Home() {
 
       <main>
         {/* Hero: fills the first screen, words on the left, motion on the right. */}
-        <section className="mx-auto grid min-h-[calc(100vh-65px)] max-w-[1400px] items-center gap-10 px-5 py-12 sm:px-8 lg:grid-cols-[1.05fr_1fr]">
+        <section className="mx-auto grid grid-cols-1 min-h-[calc(100vh-65px)] max-w-[1400px] items-center gap-10 px-5 py-12 sm:px-8 lg:grid-cols-[1.05fr_1fr]">
           <div>
             <p className="animate-rise inline-flex items-center gap-2 rounded-full bg-brand-tint px-3 py-1 text-xs font-medium text-brand">
               Built for Google Ads agencies
@@ -125,7 +125,7 @@ export default function Home() {
               {STAGES.map((stage, index) => (
                 <li
                   key={stage.step}
-                  className="relative grid gap-5 pb-14 pl-14 last:pb-0 md:grid-cols-2 md:gap-16 md:pl-0"
+                  className="relative grid grid-cols-1 gap-5 pb-14 pl-14 last:pb-0 md:grid-cols-2 md:gap-16 md:pl-0"
                 >
                   <span
                     aria-hidden="true"
@@ -162,7 +162,7 @@ export default function Home() {
 
         {/* About */}
         <section id="about" className="scroll-mt-20 py-20">
-          <div className="mx-auto grid max-w-[1400px] gap-10 px-5 sm:px-8 lg:grid-cols-2">
+          <div className="mx-auto grid grid-cols-1 max-w-[1400px] gap-10 px-5 sm:px-8 lg:grid-cols-2">
             <div>
               <SectionHeading eyebrow="About">
                 Built around one question a client asks

@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { FilterChips } from "@/components/ui/filter-chips";
 import { StatusPill } from "@/components/ui/status-pill";
+import { ScrollX } from "@/components/ui/scroll-x";
 
 /**
  * The agency's Google Ads view: the connection itself, then every account under
@@ -154,7 +155,7 @@ export function GoogleAdsAccounts({
           </Button>
         </div>
 
-        <dl className="mt-5 grid gap-4 sm:grid-cols-3">
+        <dl className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div>
             <dt className="text-xs uppercase tracking-[0.1em] text-ink-faint">Status</dt>
             <dd className="mt-1.5">
@@ -215,7 +216,7 @@ export function GoogleAdsAccounts({
                   : "No accounts have this status."}
               </p>
             ) : (
-              <div className="overflow-x-auto">
+              <ScrollX>
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-line text-left text-[11px] font-medium uppercase tracking-[0.1em] text-ink-faint">
@@ -286,7 +287,7 @@ export function GoogleAdsAccounts({
                     })}
                   </tbody>
                 </table>
-              </div>
+              </ScrollX>
             )}
           </>
         )}

@@ -17,6 +17,7 @@ import { BrandLockup } from "@/components/ui/brand";
 import { FilterChips } from "@/components/ui/filter-chips";
 import { ThemeToggle } from "@/components/ui/theme";
 import { TopBar, TopBarLink } from "@/components/ui/top-bar";
+import { ScrollX } from "@/components/ui/scroll-x";
 import { formatNumber } from "@/lib/format";
 
 type Agency = {
@@ -243,7 +244,7 @@ export default function MasterDashboard() {
           </p>
         ) : null}
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <StatTile label="Agencies" value={formatNumber(totals.agencies)} />
           <StatTile label="Clients" value={formatNumber(totals.clients)} />
           <StatTile label="Google Ads connected" value={formatNumber(totals.connected)} />
@@ -302,7 +303,7 @@ export default function MasterDashboard() {
               ) : null}
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <ScrollX>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-line text-left text-[11px] font-medium uppercase tracking-[0.1em] text-ink-faint">
@@ -380,7 +381,7 @@ export default function MasterDashboard() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </ScrollX>
           )}
         </section>
       </main>

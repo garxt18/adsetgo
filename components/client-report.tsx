@@ -6,6 +6,7 @@ import { BarChart, DeltaChip, LineChart, Sparkline, type Point } from "@/compone
 import { MetricDetail, type MetricDetailData } from "@/components/metric-detail";
 import { Card, CardHeader, EmptyState } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
+import { ScrollX } from "@/components/ui/scroll-x";
 import { buildAlerts } from "@/lib/insights";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import {
@@ -129,7 +130,7 @@ export function ClientReport({
       <p className="animate-rise mt-5 text-base text-ink">{summarise(metrics, changes)}</p>
 
       {alerts.length > 0 ? (
-        <div className="animate-rise mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="animate-rise mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {alerts.map((alert) => (
             <div
               key={alert.id}
@@ -158,7 +159,7 @@ export function ClientReport({
         </label>
       </div>
 
-      <div className="mt-3 grid gap-4 lg:grid-cols-2">
+      <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="animate-rise delay-1 p-5">
           <HeadlineChart
             title="Conversions"
@@ -188,7 +189,7 @@ export function ClientReport({
         </Card>
       </div>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {tiles.map((key, index) => (
           <button
             key={key}
@@ -218,7 +219,7 @@ export function ClientReport({
 
       </div>
 
-      <div className={`mt-4 grid gap-4 lg:grid-cols-2 ${tab === "campaigns" ? "" : "hidden"}`}>
+      <div className={`mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2 ${tab === "campaigns" ? "" : "hidden"}`}>
         <Card className="animate-rise p-5">
           <h2 className="text-sm font-medium text-ink">Conversions by campaign</h2>
           <p className="mt-0.5 text-xs text-ink-soft">Top five in this period</p>
@@ -235,7 +236,7 @@ export function ClientReport({
               description="Choose a longer period, or ask your agency when the next campaign starts."
             />
           ) : (
-            <div className="overflow-x-auto">
+            <ScrollX>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-line text-left text-[11px] font-medium uppercase tracking-[0.1em] text-ink-faint">
@@ -267,7 +268,7 @@ export function ClientReport({
                   ))}
                 </tbody>
               </table>
-            </div>
+            </ScrollX>
           )}
         </Card>
       </div>

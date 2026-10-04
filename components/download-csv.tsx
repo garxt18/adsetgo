@@ -1,6 +1,7 @@
 "use client";
 
 import type { Campaign } from "@/components/client-report";
+import { DownloadLabel } from "@/components/download-pdf";
 import { Button } from "@/components/ui/button";
 import { fileSlug, toCsv } from "@/lib/export";
 import type { Period } from "@/lib/google-ads/date-range";
@@ -31,8 +32,8 @@ export function DownloadCsvButton({
   }
 
   return (
-    <Button variant="secondary" size="nav" onClick={download} disabled={disabled}>
-      Download CSV
+    <Button variant="secondary" size="nav" onClick={download} disabled={disabled} aria-label="Download CSV">
+      <DownloadLabel format="CSV" />
     </Button>
   );
 }

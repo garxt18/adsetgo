@@ -69,7 +69,7 @@ export function CallReportView({ clientId, range }: { clientId: string; range: R
     <div className={`mt-4 space-y-4 transition-opacity ${status === "loading" ? "opacity-60" : ""}`}>
       <SectionTitle>Call volume</SectionTitle>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatTile label="Calls" value={formatNumber(summary.calls)}>
           <div className="mt-1.5">
             <DeltaChip change={changes.calls} />
@@ -120,7 +120,7 @@ export function CallReportView({ clientId, range }: { clientId: string; range: R
 
       <SectionTitle>Where calls came from</SectionTitle>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="animate-rise">
           <CardHeader title="Top campaigns" description="Calls each campaign brought in" />
           <ul className="space-y-4 px-5 py-4">

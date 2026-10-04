@@ -53,7 +53,7 @@ export function BrandLockup({
   return (
     <Link
       href={href}
-      className="flex min-w-0 items-center gap-2.5 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+      className="flex min-w-9 items-center gap-2.5 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
     >
       <BrandMark />
       <span className="min-w-0 leading-tight">

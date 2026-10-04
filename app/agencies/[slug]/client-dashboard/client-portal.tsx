@@ -37,6 +37,22 @@ export function ClientPortal({
   const { report } = state;
   const campaigns = report?.campaigns ?? [];
 
+  // The period's campaigns as a spreadsheet, and the whole report as a PDF.
+  const downloads = (
+    <>
+      <CampaignCsvButton
+        clientName={client.name}
+        period={report?.period}
+        campaigns={campaigns}
+        disabled={state.status !== "ready"}
+      />
+      <DownloadPdfButton
+        href={`/api/google-ads/pdf?dateRange=${encodeURIComponent(state.range)}`}
+        disabled={state.status !== "ready"}
+      />
+    </>
+  );
+
   // Switching view returns to the top: keeping the old scroll position drops
   // the reader into the middle of a page they have not seen yet.
   function selectTab(next: ReportTab) {
@@ -71,17 +87,8 @@ export function ClientPortal({
         }
         actions={
           <>
-            {/* The period's campaigns as a spreadsheet, and the whole report as a PDF. */}
-            <CampaignCsvButton
-              clientName={client.name}
-              period={report?.period}
-              campaigns={campaigns}
-              disabled={state.status !== "ready"}
-            />
-            <DownloadPdfButton
-              href={`/api/google-ads/pdf?dateRange=${encodeURIComponent(state.range)}`}
-              disabled={state.status !== "ready"}
-            />
+            {/* In the bar from tablet width up; on a phone they have their own row below. */}
+            <div className="hidden items-center gap-2 sm:flex">{downloads}</div>
             <ThemeToggle />
             <Button variant="secondary" size="nav" onClick={handleLogout}>
               Sign out
@@ -104,14 +111,19 @@ export function ClientPortal({
             </p>
           </div>
 
-          <PeriodPicker value={state.range} onChange={state.selectRange} />
+          <div className="flex flex-wrap items-center gap-2">
+            {/* On a phone the top bar has room only for the name, the theme
+                and Sign out, so the downloads sit here, beside the period. */}
+            <div className="flex items-center gap-2 sm:hidden">{downloads}</div>
+            <PeriodPicker value={state.range} onChange={state.selectRange} />
+          </div>
         </div>
 
         <ReportPanel state={state} tab={tab} />
 
         <section id="account" className="mt-8 rounded-2xl bg-surface px-5 py-4 ring-1 ring-line">
           <h2 className="text-sm font-medium text-ink">Account</h2>
-          <dl className="mt-3 grid gap-4 text-sm sm:grid-cols-3">
+          <dl className="mt-3 grid grid-cols-1 gap-4 text-sm sm:grid-cols-3">
             <div>
               <dt className="text-xs uppercase tracking-[0.1em] text-ink-faint">
                 Google Ads account

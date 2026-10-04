@@ -284,7 +284,7 @@ export default function AgencyDashboard() {
             </div>
           </div>
 
-          <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <StatTile
               label="Clients"
               value={formatNumber(clients.length)}

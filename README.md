@@ -234,6 +234,26 @@ Modules inside `lib/` import each other relatively and with a `.ts` extension,
 because `npm test` runs those files directly through Node, which resolves
 neither the alias nor extensionless paths.
 
+## Phone layout rules
+
+Every page must fit a 360px-wide phone exactly: any element wider than the
+screen widens the whole page, and people scroll sideways into an empty strip.
+Three rules keep that from happening; break one and the strip comes back.
+
+- **Wide content scrolls inside `ScrollX`** (`components/ui/scroll-x.tsx`),
+  never in a bare `overflow-x-auto` box. The box must be `relative`, or the
+  hidden screen-reader labels inside it (every change chip has one) escape and
+  widen the page. That is what made the agency dashboard 360px too wide.
+- **Every grid states its phone columns**: `grid grid-cols-1 sm:grid-cols-2`,
+  never `grid sm:grid-cols-2`. A grid without them sizes its column to its
+  widest content, such as a campaign name that does not wrap.
+- **Pop-overs are pinned to the screen on phones** (`max-sm:fixed
+  max-sm:inset-x-4`), as the custom date panel and the PDF error are. A pop-over
+  anchored to a button opens off one edge when the button wraps.
+
+To check a page, open it at 360px wide (DevTools device toolbar) and run
+`document.documentElement.scrollWidth - innerWidth` in the console: it must be 0.
+
 ## Security rules that must not be relaxed
 
 - **PDF fonts must stay traced into the deployment.** `lib/pdf/kit.tsx` reads

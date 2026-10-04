@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 
 import { DeltaChip, Sparkline, type Point } from "@/components/charts";
 import { StatusPill } from "@/components/ui/status-pill";
+import { ScrollX } from "@/components/ui/scroll-x";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { formatGoogleAdsCustomerId } from "@/lib/google-ads/format";
 
@@ -147,7 +148,7 @@ export function ClientTable({
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
+        <ScrollX>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line text-left text-[11px] font-medium uppercase tracking-[0.1em] text-ink-faint">
@@ -214,7 +215,7 @@ export function ClientTable({
               ))}
             </tbody>
           </table>
-        </div>
+        </ScrollX>
       )}
     </section>
   );
