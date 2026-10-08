@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { AdsReportView } from "@/components/ads-report";
 import { CallReportView } from "@/components/call-report";
 import {
   ClientReport,
@@ -26,6 +27,8 @@ export type Report = {
   previousCampaigns: Campaign[];
   period: Period;
   isSample: boolean;
+  /** The account's currency code (GBP, INR, ...). */
+  currency: string;
 };
 
 export type ReportState = {
@@ -73,6 +76,7 @@ export function ReportPanel({ state, tab }: { state: ReportState; tab: ReportTab
         periodLabel={span(report.period.start, report.period.end, false)}
         comparisonLabel={span(report.period.previousStart, report.period.previousEnd, false)}
         tab={tab}
+        currency={report.currency}
       />
     ) : null;
 
@@ -80,11 +84,12 @@ export function ReportPanel({ state, tab }: { state: ReportState; tab: ReportTab
     <>
       {report?.isSample && status !== "unavailable" ? <SampleBanner className="mt-4" /> : null}
 
-      {/* Calls load only when their tab is opened: they cost their own Google
-          queries. The main report stays mounted underneath, so its settings
-          survive a look at the calls. */}
+      {/* Calls and Ads load only when their tab is opened: they cost their
+          own Google queries. The main report stays mounted underneath, so its
+          settings survive a look at either. */}
       {tab === "calls" ? <CallReportView clientId={state.clientId} range={state.range} /> : null}
-      <div className={tab === "calls" ? "hidden" : undefined}>{main}</div>
+      {tab === "ads" ? <AdsReportView clientId={state.clientId} range={state.range} /> : null}
+      <div className={tab === "calls" || tab === "ads" ? "hidden" : undefined}>{main}</div>
     </>
   );
 }

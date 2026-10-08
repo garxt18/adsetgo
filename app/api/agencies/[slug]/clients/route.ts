@@ -70,13 +70,14 @@ export async function POST(request: Request, ctx: RouteContext<"/api/agencies/[s
       email,
       role: "client",
       agencyId: agency.id,
+      agencySlug: agency.slug,
       clientId: newClient.id,
       origin: resolveAppOrigin(request),
     });
 
     if (!invite.ok) {
       return NextResponse.json(
-        { ...newClient, inviteLink: null, inviteError: invite.error },
+        { ...newClient, signInLink: null, inviteError: invite.error },
         { status: 201 }
       );
     }
@@ -89,7 +90,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/agencies/[s
       .eq("id", newClient.id);
 
     return NextResponse.json(
-      { ...newClient, auth_user_id: invite.userId, inviteLink: invite.inviteLink },
+      { ...newClient, auth_user_id: invite.userId, signInLink: invite.signInLink },
       { status: 201 }
     );
   } catch (error) {

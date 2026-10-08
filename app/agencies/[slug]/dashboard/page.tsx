@@ -18,7 +18,8 @@ import { Field } from "@/components/ui/field";
 import { Modal } from "@/components/ui/modal";
 import { PeriodPicker } from "@/components/ui/period-picker";
 import { fileSlug } from "@/lib/export";
-import { formatCurrency, formatNumber } from "@/lib/format";
+import { formatAmounts, formatNumber } from "@/lib/format";
+import type { SpendTotal } from "@/lib/google-ads/report";
 import { formatGoogleAdsCustomerId } from "@/lib/google-ads/format";
 import { span, type Period, type RangeValue } from "@/lib/google-ads/date-range";
 
@@ -31,11 +32,11 @@ type Agency = {
 };
 
 type Totals = {
-  cost: number;
   clicks: number;
   conversions: number;
   impressions: number;
-  costPerConversion: number;
+  /** Money, one entry per currency: never added across currencies. */
+  spend: SpendTotal[];
 };
 
 export default function AgencyDashboard() {
@@ -136,14 +137,14 @@ export default function AgencyDashboard() {
         return;
       }
 
-      if (!data.inviteLink) {
+      if (!data.signInLink) {
         setInviteError(
           data.inviteError ?? "The client was saved but no invitation could be created."
         );
         return;
       }
 
-      setInviteLink(data.inviteLink);
+      setInviteLink(data.signInLink);
       setInviteName("");
       setInviteEmail("");
       setInviteCustomerId("");
@@ -252,13 +253,14 @@ export default function AgencyDashboard() {
                     "Client",
                     "Google Ads account",
                     "Status",
-                    "Spend (INR)",
+                    "Currency",
+                    "Spend",
                     "Spend change (%)",
                     "Conversions",
                     "Conversions change (%)",
                     "Clicks",
                     "Impressions",
-                    "Cost per conversion (INR)",
+                    "Cost per conversion",
                   ],
                   // Highest spend first, as the list and the PDF sort it.
                   ...[...clients]
@@ -267,6 +269,8 @@ export default function AgencyDashboard() {
                       c.name,
                       c.googleAdsCustomerId ? formatGoogleAdsCustomerId(c.googleAdsCustomerId) : "",
                       c.status,
+                      // Each row in its own account's currency, named alongside.
+                      c.currency ?? "",
                       c.metrics?.cost,
                       c.change === null ? null : Math.round(c.change * 10) / 10,
                       c.metrics?.conversions,
@@ -290,7 +294,10 @@ export default function AgencyDashboard() {
               value={formatNumber(clients.length)}
               caption={`${clients.filter((c) => c.status === "active").length} active`}
             />
-            <StatTile label="Ad spend" value={totals ? formatCurrency(totals.cost) : "—"}>
+            <StatTile
+              label="Ad spend"
+              value={totals ? formatAmounts(totals.spend.map((t) => ({ value: t.cost, currency: t.currency }))) : "—"}
+            >
               {spendSeries.length > 1 ? (
                 <div className="mt-2">
                   <Sparkline points={spendSeries} height={26} />
@@ -304,8 +311,12 @@ export default function AgencyDashboard() {
             <StatTile
               label="Cost per conversion"
               value={
-                totals && totals.conversions > 0
-                  ? formatCurrency(totals.costPerConversion)
+                totals
+                  ? formatAmounts(
+                      totals.spend
+                        .filter((t) => t.conversions > 0)
+                        .map((t) => ({ value: t.costPerConversion, currency: t.currency }))
+                    )
                   : "—"
               }
             />
@@ -329,16 +340,17 @@ export default function AgencyDashboard() {
         title={inviteLink ? "Client added" : "Add a client"}
         subtitle={
           inviteLink
-            ? "Send them this private link so they can set a password."
+            ? "Send them this link. They sign in with Google."
             : "They get their own login and see only their own account."
         }
       >
         {inviteLink ? (
           <div>
-            <CopyField value={inviteLink} label="Client invitation link" />
+            <CopyField value={inviteLink} label="Client sign-in link" />
             <p className="mt-3 text-xs text-ink-soft">
-              The link works once, and only for the address you entered. If it expires, add
-              the client again to issue a new one.
+              They choose Continue with Google and use the Google account for the address you
+              entered; any other Google account is turned away. The link does not expire, and
+              Copy client login link on their page gives it again.
             </p>
             <div className="mt-5 flex justify-end">
               <Button variant="secondary" onClick={() => setShowInvite(false)}>
@@ -377,6 +389,7 @@ export default function AgencyDashboard() {
               onChange={setInviteEmail}
               placeholder="contact@acme.com"
               type="email"
+              hint="Their Google account: Gmail, or a work address on Google Workspace."
             />
 
             <div className="flex justify-end gap-2">

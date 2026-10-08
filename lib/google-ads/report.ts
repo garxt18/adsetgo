@@ -8,7 +8,7 @@
  */
 
 import type { GoogleAdsRow } from "./auth.ts";
-import { percentChange, periodOf, type ResolvedRange } from "./date-range.ts";
+import { eachDay, percentChange, periodOf, type ResolvedRange } from "./date-range.ts";
 
 const round2 = (value: number) => Number(value.toFixed(2));
 
@@ -80,10 +80,15 @@ function groupRows(rows: GoogleAdsRow[], keyOf: (row: GoogleAdsRow) => string | 
  * Daily series for one window. Every figure on the dashboard has a tile and
  * every tile shows its own trend, so the rates are worked out per day too.
  */
-export function groupByDay(rows: GoogleAdsRow[]) {
-  return groupRows(rows, (row) => row.segments?.date)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, dayRows]) => {
+export function groupByDay(rows: GoogleAdsRow[], start?: string, end?: string) {
+  const byDate = new Map(groupRows(rows, (row) => row.segments?.date));
+
+  // Every day of the period, quiet days as zero. Google sends no row for a day
+  // without activity, and leaving those days out stretched the rest across the
+  // chart: ads that stopped on Wednesday looked as if they ran all week.
+  const dates = start && end ? eachDay(start, end) : [...byDate.keys()].sort();
+
+  return dates.map((date) => [date, byDate.get(date) ?? []] as const).map(([date, dayRows]) => {
       const { impressions, clicks, cost, conversions, ctr, averageCpc, costPerConversion, conversionRate } =
         summarize(dayRows);
       return { date, impressions, clicks, conversions, cost, ctr, averageCpc, costPerConversion, conversionRate };
@@ -117,11 +122,14 @@ export function buildReport({
   rows,
   previousRows,
   isSample,
+  currency,
 }: {
   range: ResolvedRange;
   rows: GoogleAdsRow[];
   previousRows: GoogleAdsRow[];
   isSample: boolean;
+  /** The account's currency code; every money figure in the report is in it. */
+  currency: string;
 }) {
   const metrics = summarize(rows);
   const previousMetrics = summarize(previousRows);
@@ -145,10 +153,94 @@ export function buildReport({
     changes: Object.fromEntries(
       compared.map((key) => [key, percentChange(metrics[key], previousMetrics[key])])
     ),
-    trend: groupByDay(rows),
-    previousTrend: groupByDay(previousRows),
+    trend: groupByDay(rows, range.start, range.end),
+    previousTrend: groupByDay(previousRows, range.previousStart, range.previousEnd),
     campaigns: groupByCampaign(rows),
     previousCampaigns: groupByCampaign(previousRows),
     isSample,
+    currency,
+  };
+}
+
+/** One currency's share of an agency's spend. */
+export type SpendTotal = {
+  currency: string;
+  cost: number;
+  conversions: number;
+  costPerConversion: number;
+};
+
+/**
+ * Money totals across several accounts, kept apart by currency: £1,279 and
+ * ₹3,543 cannot be added into one figure. Largest spend first. Counts such as
+ * clicks are the same in any currency and are totalled elsewhere.
+ */
+export function totalsByCurrency(
+  accounts: Array<{ currency: string; cost: number; conversions: number }>
+): SpendTotal[] {
+  const byCurrency = new Map<string, { cost: number; conversions: number }>();
+
+  for (const { currency, cost, conversions } of accounts) {
+    const total = byCurrency.get(currency) ?? { cost: 0, conversions: 0 };
+    total.cost += cost;
+    total.conversions += conversions;
+    byCurrency.set(currency, total);
+  }
+
+  return Array.from(byCurrency, ([currency, { cost, conversions }]) => ({
+    currency,
+    cost: round2(cost),
+    conversions,
+    costPerConversion: conversions > 0 ? round2(cost / conversions) : 0,
+  })).sort((a, b) => b.cost - a.cost);
+}
+
+export type CampaignLine = ReturnType<typeof groupByCampaign>[number];
+
+/** How the campaign table is ordered: by spend, best results first, or weakest first. */
+export type CampaignOrder = "spend" | "best" | "lowest";
+
+/** Shown at least once or cost something in the period. */
+const ran = (c: CampaignLine) => c.impressions > 0 || c.cost > 0;
+/**
+ * Campaigns in the requested order. "best" and "lowest" mirror each other:
+ * most conversions first (the cheaper first on a tie), or fewest first (the
+ * dearer first on a tie, so money spent for nothing leads). Campaigns that
+ * did not run at all come last in every order.
+ */
+export function orderCampaigns(campaigns: CampaignLine[], order: CampaignOrder): CampaignLine[] {
+  const compare: Record<CampaignOrder, (a: CampaignLine, b: CampaignLine) => number> = {
+    spend: (a, b) => b.cost - a.cost,
+    best: (a, b) => b.conversions - a.conversions || a.cost - b.cost,
+    lowest: (a, b) => a.conversions - b.conversions || b.cost - a.cost,
+  };
+
+  return [...campaigns].sort((a, b) => Number(ran(b)) - Number(ran(a)) || compare[order](a, b));
+}
+
+/**
+ * The campaign tab's headline answers: how many ran, which did best, which
+ * did worst, and which cost the most. A title is only given when it means
+ * something: no "best" without a conversion, no "lowest" with one campaign.
+ */
+export function campaignHighlights(campaigns: CampaignLine[]) {
+  const running = campaigns.filter(ran);
+  const spent = running.filter((c) => c.cost > 0);
+
+  const best = orderCampaigns(running, "best")[0];
+  const lowest = spent.length > 1 ? orderCampaigns(spent, "lowest")[0] : undefined;
+  const mostCostly = orderCampaigns(spent, "spend")[0];
+  const totalSpend = spent.reduce((sum, c) => sum + c.cost, 0);
+
+  return {
+    total: running.length,
+    active: running.filter((c) => c.status === "ENABLED").length,
+    best: best && best.conversions > 0 ? best : null,
+    // Only possible when every campaign that spent has identical figures:
+    // then none is weaker, so naming one would mislead.
+    lowest: lowest && lowest.id !== best?.id ? lowest : null,
+    mostCostly: mostCostly ?? null,
+    /** The most costly campaign's share of all spend, as a percentage. */
+    mostCostlyShare: mostCostly && totalSpend > 0 ? (mostCostly.cost / totalSpend) * 100 : 0,
   };
 }

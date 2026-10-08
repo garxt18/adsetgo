@@ -10,45 +10,33 @@ import { Field } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 
 /**
- * Where an invitation or a password-reset link lands. Both end the same way --
- * the person chooses a password and goes to their own workspace -- so they
- * share one screen and differ only in wording.
+ * Where a password-reset link lands: the platform admin choosing a new backup
+ * password. The app sends no reset email; a link arrives only if one is sent
+ * from the Supabase dashboard. Agencies and clients sign in with Google and
+ * have no password; a reset session of theirs is refused by the server
+ * (lib/sign-in-methods.ts).
  *
  * A link can arrive in three shapes, and each is accepted:
  *
- *   ?token_hash=&type=   links this app builds (invitations, and reset links an
- *                        agency or admin issues). Works on any device.
+ *   ?token_hash=&type=   links built from a token hash. Works on any device.
  *   ?code=               Supabase's own reset email under the PKCE flow. Can
  *                        only be completed in the browser that asked for it,
  *                        because that browser holds the matching verifier.
  *   #access_token=       the older implicit format, for links already sent.
- *
- * The role was fixed when the account was created, so nothing about it is read
- * from the link or from anything the person types.
  */
 
-type Mode = "invite" | "reset";
-
-const COPY: Record<Mode, { eyebrow: string; title: string; button: string; invalid: string }> = {
-  invite: {
-    eyebrow: "Accept invitation",
-    title: "Set your password",
-    button: "Set password and continue",
-    invalid: "This invitation link is invalid or has already been used. Ask for a new one.",
-  },
-  reset: {
-    eyebrow: "Reset password",
-    title: "Choose a new password",
-    button: "Save new password",
-    invalid:
-      "This reset link is invalid, has expired, or was opened in a different browser from the one that asked for it. Request a new one.",
-  },
+const COPY = {
+  eyebrow: "Reset password",
+  title: "Choose a new password",
+  button: "Save new password",
+  invalid:
+    "This reset link is invalid, has expired, or was opened in a different browser from the one that asked for it. Sign in with Google instead.",
 };
 
-export function SetPassword({ mode }: { mode: Mode }) {
+export function SetPassword() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const copy = COPY[mode];
+  const copy = COPY;
 
   const [checking, setChecking] = useState(true);
   const [email, setEmail] = useState<string | null>(null);
@@ -81,7 +69,7 @@ export function SetPassword({ mode }: { mode: Mode }) {
 
       if (tokenHash) {
         const { data, error: verifyError } = await supabase.auth.verifyOtp({
-          type: type === "recovery" ? "recovery" : type === "magiclink" ? "magiclink" : "invite",
+          type: type === "magiclink" ? "magiclink" : "recovery",
           token_hash: tokenHash,
         });
 
@@ -172,14 +160,12 @@ export function SetPassword({ mode }: { mode: Mode }) {
     return (
       <AuthShell eyebrow={copy.eyebrow} title="This link cannot be used">
         <p className="text-sm text-ink-soft">{error}</p>
-        {mode === "reset" ? (
-          <a
-            href="/forgot-password"
-            className="mt-4 inline-block text-sm text-brand underline-offset-4 hover:underline"
-          >
-            Request a new reset link
-          </a>
-        ) : null}
+        <a
+          href="/login"
+          className="mt-4 inline-block text-sm text-brand underline-offset-4 hover:underline"
+        >
+          Back to sign in
+        </a>
       </AuthShell>
     );
   }

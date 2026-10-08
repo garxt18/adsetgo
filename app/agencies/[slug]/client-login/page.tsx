@@ -1,5 +1,6 @@
 import { findAgency } from "@/lib/agencies";
 import { SignInForm } from "@/components/sign-in-form";
+import { signInError } from "@/lib/sign-in-page";
 import { AuthShell } from "@/components/ui/auth-shell";
 
 export const metadata = { title: "Sign in — AdSetGo" };
@@ -7,8 +8,9 @@ export const metadata = { title: "Sign in — AdSetGo" };
 /** The address an agency gives its clients, carrying the agency's name. */
 export default async function ClientLoginPage({
   params,
+  searchParams,
 }: PageProps<"/agencies/[slug]/client-login">) {
-  const { slug } = await params;
+  const [{ slug }, { error }] = await Promise.all([params, searchParams]);
   const agency = await findAgency(slug);
 
   if (!agency) {
@@ -26,9 +28,9 @@ export default async function ClientLoginPage({
       eyebrow="Client portal"
       title={agency.name}
       subtitle="Sign in to see how your campaigns are performing."
-      footer={`Accounts are created by invitation. Check your email for a link from ${agency.name}.`}
-      placeholder="you@company.com"
-      returnTo={`/agencies/${slug}/client-login`}
+      footer={`Use the Google account for the address ${agency.name} invited.`}
+      from={`/agencies/${slug}/client-login`}
+      error={signInError(error)}
     />
   );
 }

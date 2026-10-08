@@ -22,7 +22,7 @@ export default function NewAgencyPage() {
     id: string;
     slug: string;
     name: string;
-    inviteLink: string | null;
+    signInLink: string | null;
     inviteError?: string | null;
   } | null>(null);
 
@@ -62,7 +62,7 @@ export default function NewAgencyPage() {
         id: data.id,
         slug: data.slug,
         name: data.name,
-        inviteLink: data.inviteLink ?? null,
+        signInLink: data.signInLink ?? null,
         inviteError: data.inviteError ?? null,
       });
     } catch {
@@ -98,22 +98,18 @@ export default function NewAgencyPage() {
 
             <Card className="mt-6 p-6">
               <h2 className="text-base font-medium text-ink">
-                Send the owner their invitation
+                Send the owner their sign-in link
               </h2>
               <p className="mt-1 text-sm text-ink-soft">
-                This link works once, and only for {ownerEmail}. They set a password and land
-                in their own dashboard.
+                They choose Continue with Google and sign in with the Google account for{" "}
+                {ownerEmail}. Any other Google account is turned away. Nothing is emailed: send
+                the link however you like.
               </p>
 
-              {createdAgency.inviteLink ? (
-                <>
-                  <div className="mt-4">
-                    <CopyField value={createdAgency.inviteLink} label="Owner invitation link" />
-                  </div>
-                  <p className="mt-3 text-xs text-ink-faint">
-                    Afterwards they sign in at /agencies/{createdAgency.slug}/login
-                  </p>
-                </>
+              {createdAgency.signInLink ? (
+                <div className="mt-4">
+                  <CopyField value={createdAgency.signInLink} label="Owner sign-in link" />
+                </div>
               ) : (
                 <p className="mt-4 rounded-xl bg-caution-tint px-3.5 py-2.5 text-sm text-caution">
                   The agency exists, but no invitation could be created:{" "}
@@ -126,7 +122,7 @@ export default function NewAgencyPage() {
             <Card className="mt-4 p-6">
               <h2 className="text-base font-medium text-ink">What happens next</h2>
               <ol className="mt-3 space-y-2 text-sm text-ink-soft">
-                <li>1. The owner opens the link and sets a password.</li>
+                <li>1. The owner opens the link and signs in with Google.</li>
                 <li>2. They connect the agency&apos;s Google Ads manager account.</li>
                 <li>3. They add clients, each of whom gets their own private report.</li>
               </ol>
@@ -194,7 +190,7 @@ export default function NewAgencyPage() {
                   onChange={setOwnerEmail}
                   type="email"
                   placeholder="ram@agency.com"
-                  hint="The invitation works only for this address."
+                  hint="Their Google account: Gmail, or a work address on Google Workspace. Only this address can sign in."
                 />
 
                 <Field

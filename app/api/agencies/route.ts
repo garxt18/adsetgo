@@ -102,12 +102,13 @@ export async function POST(request: Request) {
       );
     }
 
-    // The owner gets a single-use link rather than a public signup page, so the
-    // only person who can claim this agency is the address named here.
+    // The owner's login is made here, for the address named, so the only
+    // person who can claim this agency is whoever owns that Google account.
     const invite = await createInvite({
       email: ownerEmail,
       role: "agency_admin",
       agencyId: newAgency.id,
+      agencySlug: newAgency.slug,
       origin: resolveAppOrigin(request),
     });
 
@@ -115,13 +116,13 @@ export async function POST(request: Request) {
       // The agency exists but has no owner yet; say so instead of implying the
       // invitation went out.
       return NextResponse.json(
-        { ...newAgency, inviteLink: null, inviteError: invite.error },
+        { ...newAgency, signInLink: null, inviteError: invite.error },
         { status: 201 }
       );
     }
 
     return NextResponse.json(
-      { ...newAgency, inviteLink: invite.inviteLink },
+      { ...newAgency, signInLink: invite.signInLink },
       { status: 201 }
     );
   } catch (error) {

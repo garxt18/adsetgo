@@ -1,16 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireReportClient } from "@/lib/api-auth";
-import { fetchAccountCurrency, fetchReportRows, forgetGoogleAdsAccessToken } from "@/lib/google-ads/auth";
+import { buildAdsReport } from "@/lib/google-ads/ads";
+import {
+  fetchAccountCurrency,
+  fetchAdRows,
+  fetchKeywordRows,
+  forgetGoogleAdsAccessToken,
+} from "@/lib/google-ads/auth";
 import { resolveRange } from "@/lib/google-ads/date-range";
-import { buildReport } from "@/lib/google-ads/report";
 import { isSampleDataEnabled } from "@/lib/google-ads/sample-data";
 
-/** One client's report for a period, compared with the period before it. */
+/**
+ * One client's ads and best keywords for a period.
+ *
+ * Its own route, like Calls, so its two Google queries are only spent when
+ * someone opens the Ads tab. The currency is the one the report already
+ * cached, so it costs nothing more.
+ */
 export async function GET(request: NextRequest) {
-  // Authentication comes from the session cookie only. A `?userId=` fallback
-  // previously accepted any profile id from the query string, which let a caller
-  // impersonate any user by guessing a UUID.
   const { client, response } = await requireReportClient(request.nextUrl.searchParams.get("clientId"));
   if (response) return response;
 
@@ -22,25 +30,25 @@ export async function GET(request: NextRequest) {
   }
 
   const range = resolveRange(request.nextUrl.searchParams.get("dateRange") ?? "last_7_days");
+  const query = {
+    agencyId: client.agencyId,
+    customerId: client.customerId,
+    managerCustomerId: client.managerCustomerId,
+    range,
+  };
 
   try {
-    const query = {
-      agencyId: client.agencyId,
-      customerId: client.customerId,
-      managerCustomerId: client.managerCustomerId,
-      range,
-    };
-    // The figures and their currency together: neither waits for the other.
-    const [[rows, previousRows], currency] = await Promise.all([
-      fetchReportRows(query),
+    const [adRows, keywordRows, currency] = await Promise.all([
+      fetchAdRows(query),
+      fetchKeywordRows(query),
       fetchAccountCurrency(query),
     ]);
 
     return NextResponse.json(
-      buildReport({ range, rows, previousRows, isSample: isSampleDataEnabled(), currency })
+      buildAdsReport({ range, adRows, keywordRows, isSample: isSampleDataEnabled(), currency })
     );
   } catch (error: unknown) {
-    console.error("Google Ads metrics fetch failed:", error);
+    console.error("Google Ads ads fetch failed:", error);
     forgetGoogleAdsAccessToken(client.agencyId);
 
     return NextResponse.json({

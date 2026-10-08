@@ -1,4 +1,3 @@
-import Link from "next/link";
 import type { ReactNode } from "react";
 
 /**
@@ -57,23 +56,5 @@ export function FormError({ message }: { message: string }) {
     >
       {message}
     </div>
-  );
-}
-
-/**
- * The way back in for someone who has forgotten their password. It carries the
- * sign-in page it came from, so a reset client returns to their agency's
- * screen rather than the platform's.
- */
-export function ForgotLink({ returnTo }: { returnTo: string }) {
-  return (
-    <p className="mt-4 text-center text-sm">
-      <Link
-        href={`/forgot-password?from=${encodeURIComponent(returnTo)}`}
-        className="text-ink-soft underline-offset-4 transition hover:text-brand hover:underline"
-      >
-        Forgot your password?
-      </Link>
-    </p>
   );
 }

@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireReportClient } from "@/lib/api-auth";
-import { fetchCallRows, fetchReportRows, forgetGoogleAdsAccessToken } from "@/lib/google-ads/auth";
+import { buildAdsReport } from "@/lib/google-ads/ads";
+import {
+  fetchAccountCurrency,
+  fetchAdRows,
+  fetchCallRows,
+  fetchKeywordRows,
+  fetchReportRows,
+  forgetGoogleAdsAccessToken,
+} from "@/lib/google-ads/auth";
 import { buildCallReport } from "@/lib/google-ads/calls";
 import { resolveRange } from "@/lib/google-ads/date-range";
 import { buildReport } from "@/lib/google-ads/report";
@@ -12,7 +20,7 @@ import { pdfResponse } from "@/lib/pdf/kit";
 
 /**
  * One client's report for a period as a PDF download: everything on their
- * dashboard, calls included. A client always gets their own, whatever id they
+ * dashboard, calls, ads and keywords included. A client always gets their own, whatever id they
  * send; agency staff name one of their clients, as with /api/google-ads.
  */
 export async function GET(request: NextRequest) {
@@ -34,10 +42,14 @@ export async function GET(request: NextRequest) {
     range,
   };
 
-  // Both through the same cache as the dashboard, so a report already on
-  // screen costs no further Google quota. Calls are optional: if only they
-  // fail, the report still prints and says so.
-  const [main, calls] = await Promise.allSettled([fetchReportRows(query), fetchCallRows(query)]);
+  // All through the same cache as the dashboard, so a report already on
+  // screen costs no further Google quota. Calls and ads are optional: if only
+  // they fail, the report still prints and says so.
+  const [main, calls, ads] = await Promise.allSettled([
+    Promise.all([fetchReportRows(query), fetchAccountCurrency(query)]),
+    fetchCallRows(query),
+    Promise.all([fetchAdRows(query), fetchKeywordRows(query)]),
+  ]);
 
   if (main.status === "rejected") {
     console.error("PDF report fetch failed:", main.reason);
@@ -49,15 +61,20 @@ export async function GET(request: NextRequest) {
   }
 
   const isSample = isSampleDataEnabled();
-  const [rows, previousRows] = main.value;
+  const [[rows, previousRows], currency] = main.value;
 
   return pdfResponse(
     <ClientReportPdf
       client={{ name: client.name, agencyName: client.agencyName, customerId: client.customerId }}
-      report={buildReport({ range, rows, previousRows, isSample })}
+      report={buildReport({ range, rows, previousRows, isSample, currency })}
       calls={
         calls.status === "fulfilled"
           ? buildCallReport({ range, rows: calls.value[0], previousRows: calls.value[1], isSample })
+          : null
+      }
+      ads={
+        ads.status === "fulfilled"
+          ? buildAdsReport({ range, adRows: ads.value[0], keywordRows: ads.value[1], isSample, currency })
           : null
       }
     />,

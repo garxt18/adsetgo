@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
 import { supabase } from "@/lib/supabase/browser";
 import { homePathFor } from "@/lib/home-path";
-import { AuthShell, ForgotLink, FormError } from "@/components/ui/auth-shell";
+import { GoogleSignInButton } from "@/components/google-sign-in";
+import { AuthShell, FormError } from "@/components/ui/auth-shell";
 import { Field } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 
@@ -17,8 +18,9 @@ const DEV_ADMIN_EMAIL = process.env.NEXT_PUBLIC_DEV_ADMIN_EMAIL ?? "";
 const DEV_ADMIN_PASSWORD = process.env.NEXT_PUBLIC_DEV_ADMIN_PASSWORD ?? "";
 
 /**
- * The one sign-in form behind all three sign-in screens: the platform's, an
- * agency's and a client's. They differ only in wording.
+ * The one sign-in screen behind all three: the platform's, an agency's and a
+ * client's. Everyone signs in with Google; the platform screen alone keeps a
+ * password form below it, the platform admin's backup.
  *
  * Every screen ends the same way: the server says where this person belongs,
  * from their profile. A screen never decides it from its own URL, so someone
@@ -30,27 +32,28 @@ export function SignInForm({
   title,
   subtitle,
   footer,
-  placeholder,
-  returnTo,
-  devShortcut = false,
+  from,
+  error: initialError = "",
+  adminPassword = false,
 }: {
   eyebrow: string;
   title: string;
   subtitle: string;
-  footer?: string;
-  placeholder: string;
-  /** This screen's own path, so a password reset comes back to it. */
-  returnTo: string;
-  /** Offer the local platform-admin shortcut. Only the platform screen does. */
-  devShortcut?: boolean;
+  footer?: ReactNode;
+  /** This screen's own path, so Google comes back to it. */
+  from: string;
+  /** Why the last Google sign-in was refused, if it was. */
+  error?: string;
+  /** The platform admin's password backup, with the local shortcut. */
+  adminPassword?: boolean;
 }) {
   const router = useRouter();
-  const prefill = devShortcut && IS_DEV;
+  const prefill = adminPassword && IS_DEV;
 
   const [email, setEmail] = useState(prefill ? DEV_ADMIN_EMAIL : "");
   const [password, setPassword] = useState(prefill ? DEV_ADMIN_PASSWORD : "");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(initialError);
 
   function fail(message: string) {
     setError(message);
@@ -95,7 +98,9 @@ export function SignInForm({
 
     if (!path) {
       await supabase.auth.signOut();
-      return fail("This account is not set up yet. Ask your administrator for an invitation.");
+      // A password only opens the platform admin's account; agencies and
+      // clients are refused by the server however they try, so say why.
+      return fail("Agencies and clients sign in with Google. Use Continue with Google above.");
     }
 
     router.push(path);
@@ -105,29 +110,39 @@ export function SignInForm({
     <AuthShell eyebrow={eyebrow} title={title} subtitle={subtitle} footer={footer}>
       <FormError message={error} />
 
-      <form onSubmit={handleLogin} className="space-y-4">
-        <Field
-          label="Email"
-          type="email"
-          value={email}
-          onChange={setEmail}
-          autoComplete="email"
-          placeholder={placeholder}
-        />
-        <Field
-          label="Password"
-          type="password"
-          value={password}
-          onChange={setPassword}
-          autoComplete="current-password"
-          placeholder="••••••••"
-        />
-        <Button type="submit" disabled={loading} className="w-full">
-          {loading ? "Signing in…" : "Sign in"}
-        </Button>
-      </form>
+      <GoogleSignInButton from={from} />
 
-      <ForgotLink returnTo={returnTo} />
+      {adminPassword ? (
+        <>
+          <div className="my-6 flex items-center gap-3 text-xs text-ink-faint">
+            <span className="h-px flex-1 bg-line" />
+            Platform admin password
+            <span className="h-px flex-1 bg-line" />
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            <Field
+              label="Email"
+              type="email"
+              value={email}
+              onChange={setEmail}
+              autoComplete="email"
+              placeholder="name@company.com"
+            />
+            <Field
+              label="Password"
+              type="password"
+              value={password}
+              onChange={setPassword}
+              autoComplete="current-password"
+              placeholder="••••••••"
+            />
+            <Button type="submit" variant="secondary" disabled={loading} className="w-full">
+              {loading ? "Signing in…" : "Sign in with password"}
+            </Button>
+          </form>
+        </>
+      ) : null}
     </AuthShell>
   );
 }

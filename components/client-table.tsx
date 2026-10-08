@@ -25,6 +25,8 @@ export type ClientRow = {
   change: number | null;
   conversionChange: number | null;
   spendSeries: Point[];
+  /** The account's currency; null when there are no figures. */
+  currency: string | null;
 };
 
 type SortKey = "cost" | "conversions" | "clicks" | "name";
@@ -189,13 +191,13 @@ export function ClientTable({
                     <StatusPill status={client.status} />
                   </td>
                   <td className="tabular px-5 py-3 text-right font-medium text-ink">
-                    {client.metrics ? formatCurrency(client.metrics.cost) : "—"}
+                    {client.metrics ? formatCurrency(client.metrics.cost, client.currency ?? undefined) : "—"}
                   </td>
                   <td className="tabular px-5 py-3 text-right text-ink">
-                    {client.metrics ? formatNumber(client.metrics.conversions) : "—"}
+                    {client.metrics ? formatNumber(client.metrics.conversions, client.currency ?? undefined) : "—"}
                   </td>
                   <td className="tabular px-5 py-3 text-right text-ink-soft">
-                    {client.metrics ? formatNumber(client.metrics.clicks) : "—"}
+                    {client.metrics ? formatNumber(client.metrics.clicks, client.currency ?? undefined) : "—"}
                   </td>
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-2">
@@ -208,7 +210,7 @@ export function ClientTable({
                   </td>
                   <td className="tabular px-5 py-3 text-right text-ink">
                     {client.metrics && client.metrics.conversions > 0
-                      ? formatCurrency(client.metrics.costPerConversion)
+                      ? formatCurrency(client.metrics.costPerConversion, client.currency ?? undefined)
                       : "—"}
                   </td>
                 </tr>

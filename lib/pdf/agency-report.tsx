@@ -6,7 +6,7 @@
 import { Text, View } from "@react-pdf/renderer";
 
 import type { AgencyOverview } from "../agency-overview.ts";
-import { formatCurrency, formatNumber } from "../format.ts";
+import { formatAmounts, formatCurrency, formatNumber } from "../format.ts";
 import { formatGoogleAdsCustomerId } from "../google-ads/format.ts";
 import { span } from "../google-ads/date-range.ts";
 import {
@@ -66,11 +66,16 @@ export function AgencyReportPdf({ overview }: { overview: AgencyOverview }) {
           columns={3}
           tiles={[
             { label: "Clients", value: formatNumber(clients.length), caption: `${active} active` },
-            { label: "Ad spend", value: formatCurrency(totals.cost) },
+            // Per currency: pounds and rupees are listed side by side, never added.
+            { label: "Ad spend", value: formatAmounts(totals.spend.map((t) => ({ value: t.cost, currency: t.currency }))) },
             { label: "Conversions", value: formatNumber(totals.conversions) },
             {
               label: "Cost per conversion",
-              value: totals.conversions > 0 ? formatCurrency(totals.costPerConversion) : "—",
+              value: formatAmounts(
+                totals.spend
+                  .filter((t) => t.conversions > 0)
+                  .map((t) => ({ value: t.costPerConversion, currency: t.currency }))
+              ),
             },
             { label: "Clicks", value: formatNumber(totals.clicks) },
             { label: "Impressions", value: formatNumber(totals.impressions) },
@@ -107,12 +112,14 @@ export function AgencyReportPdf({ overview }: { overview: AgencyOverview }) {
               <Text key="status" style={{ color: client.status === "active" ? C.positive : C.inkSoft }}>
                 {client.status.charAt(0).toUpperCase() + client.status.slice(1)}
               </Text>,
-              client.metrics ? formatCurrency(client.metrics.cost) : "—",
+              client.metrics ? formatCurrency(client.metrics.cost, client.currency ?? undefined) : "—",
               client.metrics ? <Change key="spend" change={client.change} neutral /> : "—",
-              client.metrics ? formatNumber(client.metrics.conversions) : "—",
+              client.metrics ? formatNumber(client.metrics.conversions, client.currency ?? undefined) : "—",
               client.metrics ? <Change key="conv" change={client.conversionChange} /> : "—",
-              client.metrics ? formatNumber(client.metrics.clicks) : "—",
-              client.metrics && client.metrics.conversions > 0 ? formatCurrency(client.metrics.costPerConversion) : "—",
+              client.metrics ? formatNumber(client.metrics.clicks, client.currency ?? undefined) : "—",
+              client.metrics && client.metrics.conversions > 0
+                ? formatCurrency(client.metrics.costPerConversion, client.currency ?? undefined)
+                : "—",
               <Sparkline key="trend" points={client.spendSeries.map((point) => point.value)} />,
             ])}
           />

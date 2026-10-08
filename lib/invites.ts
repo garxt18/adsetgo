@@ -3,19 +3,20 @@ import { supabaseAdmin } from "./supabase/admin.ts";
 /**
  * Invitations for agency admins and clients.
  *
- * Accounts are never self-served: the app creates the account and hands back a
- * single-use link for the intended address. The alternative -- a public signup
- * endpoint keyed on the agency id and slug -- let anyone who read those public
- * values register themselves as an agency's admin, or bind their own login to
- * an existing client record.
+ * Accounts are never self-served: the app creates the login for the invited
+ * address, with its role, before that person ever arrives. They then sign in
+ * with the Google account for that address, and Google attaches to the login
+ * because the addresses match. A Google account for any other address finds no
+ * login with a role and is turned away (app/auth/callback/route.ts).
  *
- * Supabase issues and expires the invite token, so no token is stored here.
+ * Nothing is emailed and no token is handed out: what the inviter shares is the
+ * ordinary sign-in page, which is useless to anyone but the invited address.
  */
 
 export type InviteRole = "agency_admin" | "client";
 
 export type InviteResult =
-  | { ok: true; inviteLink: string; userId: string }
+  | { ok: true; signInLink: string; userId: string }
   | { ok: false; error: string; status: number };
 
 /**
@@ -42,30 +43,35 @@ export function resolveAppOrigin(request: Request): string {
 }
 
 /**
- * Create the account for `email` and return a single-use link that lets exactly
- * that address set a password. The profile carries the role, so an invited
- * person cannot choose what they become.
+ * Create the login for `email`, with its role, and return the sign-in page to
+ * send them. The profile carries the role, so an invited person cannot choose
+ * what they become.
+ *
+ * The address is marked confirmed and the login has no password: Google only
+ * attaches to a login whose address is confirmed, and without a password the
+ * only way in is the Google account for that address.
  */
 export async function createInvite({
   email,
   role,
   agencyId,
+  agencySlug,
   clientId,
   origin,
 }: {
   email: string;
   role: InviteRole;
   agencyId: string;
+  agencySlug: string;
   clientId?: string;
   origin: string;
 }): Promise<InviteResult> {
-  const { data, error } = await supabaseAdmin.auth.admin.generateLink({
-    type: "invite",
-    email,
-    options: { redirectTo: `${origin}/invite/accept` },
+  const { data, error } = await supabaseAdmin.auth.admin.createUser({
+    email: email.trim().toLowerCase(),
+    email_confirm: true,
   });
 
-  if (error || !data?.user || !data.properties?.hashed_token) {
+  if (error || !data?.user) {
     const message = error?.message ?? "Could not create the invitation.";
 
     // An address that already has a login is the common case here, and it must
@@ -77,7 +83,7 @@ export async function createInvite({
 
   const { error: profileError } = await supabaseAdmin.from("profiles").insert({
     id: data.user.id,
-    email,
+    email: data.user.email,
     role,
     agency_id: agencyId,
     client_id: clientId ?? null,
@@ -90,59 +96,9 @@ export async function createInvite({
     return { ok: false, error: profileError.message, status: 500 };
   }
 
-  // Supabase's own action_link hands the session back in the URL fragment
-  // (implicit flow), which the PKCE browser client never reads -- the invited
-  // person would be told their link was invalid. Pointing at our own page with
-  // the token hash lets it complete the sign-in through verifyOtp instead.
-  const inviteLink = `${origin}/invite/accept?token_hash=${encodeURIComponent(
-    data.properties.hashed_token
-  )}&type=invite`;
+  const page = role === "client" ? "client-login" : "login";
 
-  return { ok: true, inviteLink, userId: data.user.id };
-}
-
-/**
- * A single-use link that lets an existing account choose a new password.
- *
- * Issued by whoever manages the account -- an agency for its clients, the
- * platform admin for agency owners -- and handed over directly, so a person
- * who forgot their password is not stuck waiting on email delivery. Supabase's
- * built-in mailer is rate-limited and, without custom SMTP, may not deliver to
- * arbitrary addresses at all.
- *
- * The address is read from the auth account itself, not from the client
- * record: an agency can edit a client's email in the directory, but that does
- * not change the address they sign in with.
- */
-export async function createAccessLink({
-  userId,
-  origin,
-}: {
-  userId: string;
-  origin: string;
-}): Promise<{ ok: true; link: string; email: string } | { ok: false; error: string; status: number }> {
-  const { data: account, error: lookupError } = await supabaseAdmin.auth.admin.getUserById(userId);
-  const email = account?.user?.email;
-
-  if (lookupError || !email) {
-    return { ok: false, error: "This person does not have a sign-in account yet.", status: 404 };
-  }
-
-  const { data, error } = await supabaseAdmin.auth.admin.generateLink({
-    type: "recovery",
-    email,
-    options: { redirectTo: `${origin}/reset-password` },
-  });
-
-  if (error || !data?.properties?.hashed_token) {
-    return { ok: false, error: error?.message ?? "The link could not be created.", status: 500 };
-  }
-
-  const link = `${origin}/reset-password?token_hash=${encodeURIComponent(
-    data.properties.hashed_token
-  )}&type=recovery`;
-
-  return { ok: true, link, email };
+  return { ok: true, signInLink: `${origin}/agencies/${agencySlug}/${page}`, userId: data.user.id };
 }
 
 /**

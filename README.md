@@ -11,22 +11,87 @@ only their own campaign data.
 | Role | Created by | Sees |
 | --- | --- | --- |
 | `master_admin` | Bootstrapped locally (see below) | Every agency |
-| `agency_admin` | Invited by a master admin | Their own agency and its clients |
+| `agency_admin` | Signs up at `/signup`, or invited by a master admin | Their own agency and its clients |
 | `client` | Invited by their agency | Their own client record only |
 
 One agency corresponds to one Google Ads MCC. The client accounts under that MCC
 become `clients` rows.
 
-## Accounts are invitation only
+## How accounts are made
 
-There is no public sign-up anywhere in this app, and adding one would reopen a
-tenant-takeover hole: a public endpoint keyed on the agency id and slug let
-anyone who read those public values register themselves as an agency's admin.
+- **Agencies sign themselves up** at `/signup`: Continue with Google, then name
+  the agency and pick its web address (`/signup/agency`). The owner is whoever
+  is signed in, taken from the session, never from the request; one Google
+  account owns at most one workspace, and a login that already has a role
+  (a client, say) cannot make itself an agency owner
+  (`app/api/signup/agency/route.ts`, rules in `lib/agency-signup.ts`).
+- **The platform admin can still create an agency** at `/agencies/new` and
+  invite its owner.
+- **Clients exist only by their agency's invitation.** Adding a client creates
+  the login for the address entered, with its role (`lib/invites.ts`), and
+  returns the client sign-in page to send them. Nothing is emailed.
 
-Creating an agency or a client creates the account server side and returns a
-single-use link (`lib/invites.ts`). Send that link to the person; they set a
-password at `/invite/accept` and land on their dashboard. The role is fixed when
-the invitation is created, so accepting one can never choose what you become.
+The role is fixed by the server when the agency or invitation is made, so
+signing in can never choose what you become. An earlier public sign-up
+endpoint, keyed on the agency id and slug, let anyone register as any agency's
+admin or bind their login to an existing client; nothing like it may return.
+
+**Closing sign-ups.** Set `AGENCY_SIGNUP_CLOSED=1` (in Vercel's environment
+variables, then redeploy) and `/signup` says sign-ups are closed and the API
+refuses new agencies. Invitations keep working.
+
+## Signing in with Google
+
+Agencies and clients sign in with **Continue with Google**, and only with it,
+from their own sign-in page or from `/login`; the server sends each person to
+their own workspace.
+The platform admin can too, and keeps a password as a backup on `/login`, so a
+problem with one Google account can never lock the owner out of the platform.
+
+1. The invitation creates a login for the invited address, marked confirmed and
+   with no password.
+2. The person signs in with the Google account for that address. Supabase
+   attaches Google to the existing login because the addresses match, so it
+   keeps its role.
+3. `/auth/callback` checks the login has a profile. A Google account with none
+   goes on to name its agency only if it started from `/signup`; from any
+   other screen it is signed out, its Google-only login is deleted, and the
+   page says it was not invited. Someone trying a client's sign-in page with
+   the wrong Google account is never steered into creating an agency.
+
+The invited address must be a Google account: Gmail, or a work address on
+Google Workspace (or one registered as a Google account).
+
+**Google only is enforced on the server, not just in the page.** Supabase's
+sign-in API is public, so an old password, or a reset email, could still make
+a session. Each session records how it was made (`amr`), and
+`getCurrentProfile` treats an agency or client session not made with Google as
+signed out (`lib/sign-in-methods.ts`). In local development a one-time admin
+sign-in link is also accepted, for testing as an agency or client; production
+never accepts it.
+
+**Setup this depends on** (once per project):
+
+1. **Google Cloud Console → APIs & Services → Credentials → Create OAuth client
+   ID → Web application**, in a project of its own for sign-in. Add the
+   Supabase callback, `https://<project-ref>.supabase.co/auth/v1/callback`, as
+   an authorised redirect URI. Its consent screen asks only for name and email
+   (no sensitive scopes), so it can be published to production without
+   Google's review; keep it separate from the Google Ads connection client,
+   whose Ads scope does need review, so sign-in never waits on that.
+2. **Supabase → Authentication → Sign In / Providers → Google**: switch on and
+   paste that client's ID and secret.
+3. **Supabase → Authentication → URL Configuration → Redirect URLs**: add
+   `http://localhost:3001/**` (the production address needs no entry when it is
+   the Site URL, which Supabase always allows). Supabase matches
+   the whole return address, including `?from=...`, so an exact
+   `/auth/callback` entry does not match and sign-in lands on the Site URL
+   instead.
+4. **Supabase → Authentication → Sign In / Providers → "Allow new users to sign
+   up": on.** Agency sign-up needs Supabase to create a login for a new Google
+   account. This also lets anyone make a bare email login through Supabase's
+   public API, but such a login has no role and reaches nothing, and only a
+   Google session can create an agency.
 
 ## Connecting Google Ads
 
@@ -42,6 +107,71 @@ own, so `state` is the only thing tying a code to an agency.
 
 If Google later rejects the stored token, the agency is marked `expired` and the
 dashboard shows a reconnect prompt rather than claiming to be connected.
+
+## Currency
+
+Every client is reported in **their own Google Ads account's currency**
+(`customer.currency_code`, fetched by `fetchAccountCurrency` and remembered for
+a day): a UK client in pounds, an Indian one in rupees, on the dashboard, the
+PDF and the CSV. Google states figures in the account's currency, so labelling
+them in another was simply wrong. Rupee amounts keep Indian grouping
+(₹1,89,449); every other currency uses international grouping (£189,449).
+
+An agency can have clients in several currencies. Money is never added across
+them: the agency dashboard and PDF show spend and cost per conversion per
+currency ("₹3,543 · £1,279"), each client row in its own currency, and the
+client-list CSV has a Currency column. Counts (clicks, conversions,
+impressions) are the same in any currency and are totalled as one. Sorting the
+client list by spend compares raw amounts, so in a mixed-currency agency it
+orders within each currency rather than by true value; converting would need
+exchange rates from an outside service.
+
+Daily charts cover every day of the period, with quiet days as zero, so ads
+that stopped mid-period show as stopping rather than stretching across it.
+
+## Campaign highlights
+
+The **Campaigns** tab opens with four answers for the chosen period: total
+campaigns (and how many are active now), the best campaign, the lowest
+performing and the most costly (with its share of spend). Each is a button:
+pressing it orders the table to match and marks that campaign in it.
+
+- **Best**: most conversions; the cheaper wins a tie.
+- **Lowest performing**: fewest conversions among campaigns that spent; the
+  dearer comes first on a tie, so money spent for nothing leads. Not shown
+  with only one campaign, since it would only repeat the best.
+- **Most costly**: highest spend.
+
+They are worked out from the campaigns the report already loads
+(`campaignHighlights` in `lib/google-ads/report.ts`), so they follow every
+period, custom ranges included, and cost no extra Google queries. The PDF
+prints the same four, worded by the same code (`highlightTiles`).
+
+## Ads and keywords
+
+The **Ads** tab, next to Calls, lists every ad shown in the period with the
+campaign and ad group it runs in, and opens with four answers: ads shown, the
+best ad (most conversions), best reach and most clicks. As on the Campaigns
+tab, each answer is a button that orders the table to match and marks that ad.
+Below the ads are the **best performing keywords**: the 25 with the most
+conversions, then clicks, with match type, campaign and ad group.
+
+- An ad is named by its first three headlines, pinned ones in place. Google
+  mixes a responsive ad's headlines each time it shows, so this is how it
+  usually reads. Insertion codes read as the ad shows them:
+  `{KeyWord:Cheap Flights}` as "Cheap Flights", `{LOCATION(City)}` as "[city]".
+- "Reach" is times shown (impressions). Google counts unique people only for
+  video and display campaigns, so impressions are the measure every ad has.
+- Status is the ad's own: an ad can be active inside a paused campaign.
+- Performance Max builds its ads from asset groups, so its campaigns have no
+  ads listed; keywords belong to Search campaigns only.
+
+The tab loads through `/api/google-ads/ads`, guarded like every report route
+(a client sees only their own account, agency staff only their clients). It
+costs two Google queries per period, only when opened, and both are cached.
+Google sorts and trims the keywords, so a large account sends 25 rows, not
+thousands. The PDF prints the same highlights, the top 10 ads and the top 10
+keywords; if only those fail, the rest of the PDF still prints.
 
 ## Calls
 
@@ -91,38 +221,12 @@ embedded from `lib/pdf/fonts/` (SIL Open Font License, `OFL.txt` alongside).
 
 ## Password reset
 
-There are two ways back in for someone who forgot their password.
-
-- **Self-service.** Every sign-in page links to `/forgot-password`. Supabase
-  emails a link that lands on `/reset-password`. The confirmation reads the
-  same whether or not the address has an account, so the form cannot be used
-  to find out who is on the platform.
-- **Issued by whoever manages the account.** An agency can create a reset link
-  for any of its clients from the client's page, and the platform admin can do
-  the same for an agency's owner from the agencies table. The link is shown to
-  copy and send directly, so it does not depend on email delivery. Every issue
-  is written to `audit_logs`, because holding the link means being able to set
-  that person's password.
-
-Invitations and resets share one screen (`components/set-password.tsx`), and
-after either one the server decides where the person belongs
-(`/api/auth/home`). A client cannot read the `agencies` table, so working that
-out in the browser used to send clients back to the sign-in page.
-
-**Supabase settings this depends on** (Authentication, in the Supabase
-dashboard):
-
-1. **URL Configuration → Redirect URLs** must include
-   `http://localhost:3001/reset-password` and the production equivalent.
-   Without it Supabase silently sends people to the Site URL instead.
-2. **SMTP.** The built-in mailer allows only a few emails an hour and, without
-   custom SMTP, may not deliver to addresses outside the project team. Set up
-   a provider (Resend, Postmark, SES) before relying on self-service reset.
-3. **Optional, recommended: Reset Password email template.** Supabase's default
-   link can only be completed in the browser that requested it. Changing the
-   link to
-   `{{ .SiteURL }}/reset-password?token_hash={{ .TokenHash }}&type=recovery`
-   makes it work on any device; `/reset-password` accepts both forms.
+The app sends no email of any kind, so there is no "Forgot password" link.
+Agencies and clients have no password. The platform admin's password is a
+backup to Google: if it is forgotten, sign in with Google, or change it in
+Supabase (Authentication → Users). `/reset-password` remains as the landing
+page for a reset link sent from the Supabase dashboard; a reset session for an
+agency or client is refused by the server.
 
 ## Editing and removing clients
 
@@ -198,25 +302,29 @@ npm test        # node --test, no test framework needed
 ```
 app/
   agencies/[slug]/        tenant pages: login, dashboard, clients, client portal
-  agencies/new/           master admin creates an agency and gets an invite link
+  agencies/new/           master admin creates an agency and gets its sign-in link
   api/agencies/           agency and client CRUD (authorised per tenant)
   api/google-ads/         OAuth, account tree, metrics, campaign controls
   api/dev/                local bootstrap helpers, disabled in production
-  invite/accept/          where an invitation link lands
-  forgot-password/        self-service reset request
-  reset-password/         where a reset link lands (shares the invite screen)
+  auth/callback/          where Google sign-in returns; lets in logins with a role
+  signup/                 an agency creates its own workspace (then signup/agency/)
+  reset-password/         where a reset link sent from Supabase lands
   api/auth/home/          where the signed-in person belongs
 lib/
   api-auth.ts             requireApiAuth / requireAgencyAccess / canManageAgency
   agencies.ts             finds an agency by its address, for pages (server only)
-  invites.ts              invitations and admin-issued reset links
+  invites.ts              invitations: the login, its role, and the sign-in link
+  sign-in-methods.ts      agencies and clients must have signed in with Google
+  sign-in-page.ts         the sign-in screens and their Google error messages
+  agency-signup.ts        rules for an agency's own sign-up: name, address, on/off
+  home.ts                 where a signed-in person belongs (server)
   audit.ts                writes sensitive actions to audit_logs
   home-path.ts            asks the server where a signed-in person goes
-  safe-return.ts          keeps back links on this site
   dev-only-env.ts         refuses deployments carrying dev-login variables
   google-ads/auth.ts      tokens, account tree and metrics queries
   google-ads/report.ts    the report arithmetic, shared by every figure on screen
   google-ads/calls.ts     the Calls tab's arithmetic
+  google-ads/ads.ts       the Ads tab's arithmetic: ads, highlights, keywords
   report-copy.ts          metric names and the summary sentence, for screen and PDF
   agency-overview.ts      the agency's client list with figures, for screen and PDF
   pdf/                    PDF reports: kit.tsx (layout, charts), one file per report, fonts
@@ -302,9 +410,19 @@ To check a page, open it at 360px wide (DevTools device toolbar) and run
 - **Pages read roles, they never write them.** Roles are set when an invitation
   is created. A page that upserts its own profile can demote an agency admin,
   or hand itself `master_admin`.
-- **Back links only ever point at this site.** Sign-in pages pass a `from`
-  path around; it goes through `lib/safe-return.ts`, which rejects anything a
-  browser would read as another website (`//x`, `/\x`, full URLs).
-- **In production there is no login shortcut.** The master admin's Supabase
-  password is the only way in, so it must be a strong one; the local
-  development value is not a credential to reuse.
+- **In production there is no login shortcut.** The master admin signs in with
+  Google or their Supabase password, so the password must be a strong one; the
+  local development value is not a credential to reuse.
+- **Agencies and clients get in with Google only, checked on the server.**
+  `getCurrentProfile` refuses their sessions unless `amr` says Google
+  (`lib/sign-in-methods.ts`). Hiding a form is not a control: the Supabase
+  sign-in API is public.
+- **A Google sign-in gives no role by itself.** `/auth/callback` lets in a
+  login only if it has a profile. The only ways to get one are an invitation
+  and `/api/signup/agency`, which makes the caller the owner of a new, empty
+  agency and nothing else. Never create a profile from what the callback
+  receives, and never let sign-up attach a login to an existing agency or
+  client, or anyone with a Google account could give themselves access.
+- **The callback returns only to a real sign-in screen.** Its `from` value is
+  checked against the three sign-in paths (`lib/sign-in-page.ts`), so it
+  cannot be turned into a redirect to another site.

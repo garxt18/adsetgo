@@ -1,10 +1,9 @@
 "use client";
 
-import type { Campaign } from "@/components/client-report";
+import type { Report } from "@/components/report-panel";
 import { DownloadLabel } from "@/components/download-pdf";
 import { Button } from "@/components/ui/button";
 import { fileSlug, toCsv } from "@/lib/export";
-import type { Period } from "@/lib/google-ads/date-range";
 
 /**
  * Saves rows as a CSV, built in the browser from figures already on screen,
@@ -41,27 +40,30 @@ export function DownloadCsvButton({
 /**
  * A client's campaigns for the period on screen, as on the PDF's campaign
  * table. Used on the client's dashboard and on the agency's page for them.
- * Money is in rupees and rates in percent, written as plain numbers so a
- * spreadsheet can add them up.
+ * Money is in the account's currency, named in the headings, and rates in
+ * percent, all written as plain numbers so a spreadsheet can add them up.
  */
 export function CampaignCsvButton({
   clientName,
-  period,
-  campaigns,
+  report,
   disabled,
 }: {
   clientName: string;
-  period: Period | undefined;
-  campaigns: Campaign[];
+  /** Null until the report has loaded. */
+  report: Report | null;
   disabled?: boolean;
 }) {
+  const period = report?.period;
+  const campaigns = report?.campaigns ?? [];
+  const currency = report?.currency ?? "";
+
   return (
     <DownloadCsvButton
       // Both dates: with custom ranges, the start alone no longer names the period.
       filename={`${fileSlug(clientName)}-campaigns-${period ? `${period.start}-to-${period.end}` : "report"}.csv`}
       disabled={disabled}
       rows={() => [
-        ["Campaign", "Status", "Impressions", "Clicks", "CTR (%)", "Spend (INR)", "Avg CPC (INR)", "Conversions"],
+        ["Campaign", "Status", "Impressions", "Clicks", "CTR (%)", `Spend (${currency})`, `Avg CPC (${currency})`, "Conversions"],
         ...[...campaigns]
           .sort((a, b) => b.cost - a.cost)
           .map((c) => [c.name, c.status, c.impressions, c.clicks, c.ctr, c.cost, c.averageCpc, c.conversions]),

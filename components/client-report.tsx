@@ -6,18 +6,24 @@ import { BarChart, DeltaChip, LineChart, Sparkline, type Point } from "@/compone
 import { MetricDetail, type MetricDetailData } from "@/components/metric-detail";
 import { Card, CardHeader, EmptyState } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
+import { HighlightGrid } from "@/components/ui/highlight-grid";
 import { ScrollX } from "@/components/ui/scroll-x";
+import { StatusPill } from "@/components/ui/status-pill";
 import { buildAlerts } from "@/lib/insights";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import {
+  HIGHLIGHT_ORDER,
   MEASURES,
   TILE_METRICS,
+  highlightTiles,
   summarise,
+  type HighlightKey,
   type Changes,
   type MetricKey,
   type Metrics,
 } from "@/lib/report-copy";
 import { shortDay } from "@/lib/google-ads/date-range";
+import { campaignHighlights, orderCampaigns } from "@/lib/google-ads/report";
 
 export type Campaign = {
   id: string;
@@ -45,8 +51,14 @@ export type TrendRow = {
 
 export type { Changes, Metrics };
 
-/** The report's views. Calls has its own component and loads separately. */
-export type ReportTab = "overview" | "campaigns" | "calls";
+const ORDER_NOTE = {
+  spend: "Everything that ran in this period, highest spend first.",
+  best: "Best results first: most conversions, the cheaper first on a tie.",
+  lowest: "Weakest first: fewest conversions, the dearer first on a tie.",
+} as const;
+
+/** The report's views. Calls and Ads have their own components and load separately. */
+export type ReportTab = "overview" | "campaigns" | "calls" | "ads";
 
 export function ClientReport({
   metrics,
@@ -59,6 +71,7 @@ export function ClientReport({
   periodLabel,
   comparisonLabel,
   tab,
+  currency,
 }: {
   metrics: Metrics;
   changes: Changes;
@@ -71,9 +84,12 @@ export function ClientReport({
   periodLabel: string;
   comparisonLabel: string;
   tab: ReportTab;
+  /** The account's currency code; every money figure here is in it. */
+  currency: string;
 }) {
   const [openMetric, setOpenMetric] = useState<MetricKey | null>(null);
   const [compare, setCompare] = useState(false);
+  const [highlight, setHighlight] = useState<HighlightKey>("all");
 
   const series = useMemo(
     () => (pick: (row: TrendRow) => number): Point[] =>
@@ -94,9 +110,9 @@ export function ClientReport({
         previousMetrics,
         campaigns,
         previousCampaigns,
-        formatCurrency: (value) => formatCurrency(value),
+        formatCurrency: (value) => formatCurrency(value, currency),
       }),
-    [metrics, previousMetrics, campaigns, previousCampaigns]
+    [metrics, previousMetrics, campaigns, previousCampaigns, currency]
   );
 
   const tiles = TILE_METRICS;
@@ -104,9 +120,9 @@ export function ClientReport({
   const detail: MetricDetailData | null = openMetric
     ? {
         label: MEASURES[openMetric].label,
-        value: MEASURES[openMetric].format(metrics[openMetric]),
+        value: MEASURES[openMetric].format(metrics[openMetric], currency),
         previousValue: previousMetrics
-          ? MEASURES[openMetric].format(previousMetrics[openMetric])
+          ? MEASURES[openMetric].format(previousMetrics[openMetric], currency)
           : "—",
         change: changes[openMetric] ?? null,
         invert: MEASURES[openMetric].invert,
@@ -114,10 +130,15 @@ export function ClientReport({
         comparisonPoints: priorSeries((row) => row[openMetric]),
         periodLabel,
         comparisonLabel,
-        format: MEASURES[openMetric].format,
+        format: (value: number) => MEASURES[openMetric].format(value, currency),
         meaning: MEASURES[openMetric].meaning,
       }
     : null;
+
+  // Worked out from the period's campaigns, so every range gets its own answers.
+  const highlights = useMemo(() => highlightTiles(campaignHighlights(campaigns), currency), [campaigns, currency]);
+  const ordered = useMemo(() => orderCampaigns(campaigns, HIGHLIGHT_ORDER[highlight]), [campaigns, highlight]);
+  const picked = highlights.find((item) => item.key === highlight)?.campaign?.id;
 
   const topCampaigns: Point[] = [...campaigns]
     .sort((a, b) => b.conversions - a.conversions)
@@ -127,7 +148,7 @@ export function ClientReport({
   return (
     <>
 <div className={tab === "overview" ? "" : "hidden"}>
-      <p className="animate-rise mt-5 text-base text-ink">{summarise(metrics, changes)}</p>
+      <p className="animate-rise mt-5 text-base text-ink">{summarise(metrics, changes, currency)}</p>
 
       {alerts.length > 0 ? (
         <div className="animate-rise mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -163,13 +184,13 @@ export function ClientReport({
         <Card className="animate-rise delay-1 p-5">
           <HeadlineChart
             title="Conversions"
-            value={formatNumber(metrics.conversions)}
+            value={formatNumber(metrics.conversions, currency)}
             change={changes.conversions ?? null}
             points={series((row) => row.conversions)}
             comparison={compare ? priorSeries((row) => row.conversions) : undefined}
             seriesLabel={periodLabel}
             comparisonLabel={comparisonLabel}
-            format={(v) => formatNumber(v)}
+            format={(v) => formatNumber(v, currency)}
             onOpen={() => setOpenMetric("conversions")}
           />
         </Card>
@@ -177,13 +198,13 @@ export function ClientReport({
         <Card className="animate-rise delay-2 p-5">
           <HeadlineChart
             title="Clicks"
-            value={formatNumber(metrics.clicks)}
+            value={formatNumber(metrics.clicks, currency)}
             change={changes.clicks ?? null}
             points={series((row) => row.clicks)}
             comparison={compare ? priorSeries((row) => row.clicks) : undefined}
             seriesLabel={periodLabel}
             comparisonLabel={comparisonLabel}
-            format={(v) => formatNumber(v)}
+            format={(v) => formatNumber(v, currency)}
             onOpen={() => setOpenMetric("clicks")}
           />
         </Card>
@@ -205,7 +226,7 @@ export function ClientReport({
               <DeltaChip change={changes[key] ?? null} invert={MEASURES[key].invert} />
             </div>
             <p className="tabular mt-2 text-2xl font-medium tracking-[-0.02em] text-ink">
-              {MEASURES[key].format(metrics[key])}
+              {MEASURES[key].format(metrics[key], currency)}
             </p>
             <div className="mt-3">
               <Sparkline points={series((row) => row[key])} />
@@ -219,17 +240,13 @@ export function ClientReport({
 
       </div>
 
-      <div className={`mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2 ${tab === "campaigns" ? "" : "hidden"}`}>
-        <Card className="animate-rise p-5">
-          <h2 className="text-sm font-medium text-ink">Conversions by campaign</h2>
-          <p className="mt-0.5 text-xs text-ink-soft">Top five in this period</p>
-          <div className="mt-5">
-            <BarChart points={topCampaigns} format={(v) => formatNumber(v)} />
-          </div>
-        </Card>
+      <div className={tab === "campaigns" ? "" : "hidden"}>
+      {/* Pressing an answer orders the table to match and marks its campaign. */}
+      <HighlightGrid label="Campaign highlights" items={highlights} value={highlight} onChange={setHighlight} />
 
+      <div className="mt-4 grid grid-cols-1 gap-4">
         <Card id="campaigns" className="animate-rise scroll-mt-20">
-          <CardHeader title="Campaigns" description="Everything that ran in this period." />
+          <CardHeader title="Campaigns" description={ORDER_NOTE[HIGHLIGHT_ORDER[highlight]]} />
           {campaigns.length === 0 ? (
             <EmptyState
               title="No campaigns ran in this period"
@@ -241,28 +258,39 @@ export function ClientReport({
                 <thead>
                   <tr className="border-b border-line text-left text-[11px] font-medium uppercase tracking-[0.1em] text-ink-faint">
                     <th className="px-5 py-2.5">Campaign</th>
+                    <th className="px-5 py-2.5">Status</th>
                     <th className="px-5 py-2.5 text-right">Spend</th>
                     <th className="px-5 py-2.5 text-right">Clicks</th>
                     <th className="px-5 py-2.5 text-right">Results</th>
+                    <th className="px-5 py-2.5 text-right">Cost / result</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {campaigns.map((campaign) => (
+                  {ordered.map((campaign) => (
                     <tr
                       key={campaign.id}
-                      className="border-b border-line transition last:border-0 hover:bg-surface-sunken"
+                      aria-current={campaign.id === picked ? "true" : undefined}
+                      className={`border-b border-line transition last:border-0 ${
+                        campaign.id === picked ? "bg-brand-tint" : "hover:bg-surface-sunken"
+                      }`}
                     >
-                      <td className="max-w-[14rem] truncate px-5 py-2.5 font-medium text-ink">
+                      <td className="max-w-[14rem] truncate px-5 py-2.5 font-medium text-ink" title={campaign.name}>
                         {campaign.name}
                       </td>
+                      <td className="px-5 py-2.5">
+                        <StatusPill status={campaign.status} />
+                      </td>
                       <td className="tabular px-5 py-2.5 text-right text-ink">
-                        {formatCurrency(campaign.cost)}
+                        {formatCurrency(campaign.cost, currency)}
                       </td>
                       <td className="tabular px-5 py-2.5 text-right text-ink-soft">
-                        {formatNumber(campaign.clicks)}
+                        {formatNumber(campaign.clicks, currency)}
                       </td>
                       <td className="tabular px-5 py-2.5 text-right text-ink">
-                        {formatNumber(campaign.conversions)}
+                        {formatNumber(campaign.conversions, currency)}
+                      </td>
+                      <td className="tabular px-5 py-2.5 text-right text-ink-soft">
+                        {campaign.conversions > 0 ? formatCurrency(campaign.cost / campaign.conversions, currency) : "—"}
                       </td>
                     </tr>
                   ))}
@@ -271,6 +299,15 @@ export function ClientReport({
             </ScrollX>
           )}
         </Card>
+
+        <Card className="animate-rise p-5">
+          <h2 className="text-sm font-medium text-ink">Conversions by campaign</h2>
+          <p className="mt-0.5 text-xs text-ink-soft">Top five in this period</p>
+          <div className="mt-5">
+            <BarChart points={topCampaigns} format={(v) => formatNumber(v, currency)} />
+          </div>
+        </Card>
+      </div>
       </div>
 
       <Modal

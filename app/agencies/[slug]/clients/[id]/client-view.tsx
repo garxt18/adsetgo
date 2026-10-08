@@ -12,7 +12,6 @@ import type { ReportTab } from "@/components/client-report";
 import { CampaignCsvButton } from "@/components/download-csv";
 import { DownloadPdfButton } from "@/components/download-pdf";
 import { ReportPanel, useReport } from "@/components/report-panel";
-import { ResetLinkButton } from "@/components/reset-link-button";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy";
 import { PeriodPicker } from "@/components/ui/period-picker";
@@ -99,11 +98,6 @@ export function ClientView({
             copiedLabel="Link copied"
             text={() => `${window.location.origin}/agencies/${slug}/client-login`}
           />
-          <ResetLinkButton
-            endpoint={`/api/agencies/${slug}/clients/${client.id}/access-link`}
-            who={client.name}
-            size="nav"
-          />
           <EditClientButton slug={slug} client={client} />
           <RemoveClientButton slug={slug} client={client} />
         </div>
@@ -119,13 +113,13 @@ export function ClientView({
             onClick={() => setTab("campaigns")}
           />
           <TabButton label="Calls" active={tab === "calls"} onClick={() => setTab("calls")} />
+          <TabButton label="Ads" active={tab === "ads"} onClick={() => setTab("ads")} />
         </div>
         <div className="flex items-center gap-2 pb-2">
           {/* The same PDF the client downloads, for sending to them. */}
           <CampaignCsvButton
             clientName={client.name}
-            period={report?.period}
-            campaigns={report?.campaigns ?? []}
+            report={report}
             disabled={state.status !== "ready"}
           />
           <DownloadPdfButton

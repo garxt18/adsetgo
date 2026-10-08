@@ -1,4 +1,4 @@
-import type { CallRow, GoogleAdsRow } from "./auth.ts";
+import type { AdRow, CallRow, GoogleAdsRow, KeywordRow } from "./auth.ts";
 import { eachDay } from "./date-range.ts";
 
 /**
@@ -147,4 +147,104 @@ export function buildSampleCalls({
   }
 
   return rows;
+}
+
+const SAMPLE_ADS: Record<string, Array<{ group: string; headlines: string[] }>> = {
+  "1001": [
+    { group: "Brand — Exact", headlines: ["Official Site", "Free Delivery on Big Orders", "Shop the New Range"] },
+    { group: "Brand — Exact", headlines: ["Rated 4.8 by Customers", "Order Before 2pm", "Next-Day Delivery"] },
+  ],
+  "1002": [
+    { group: "Competitor Terms", headlines: ["A Better Alternative", "Compare Prices Today", "Switch in Minutes"] },
+    { group: "Competitor Terms", headlines: ["Why Customers Switch", "Price Match Promise", "Try It Free"] },
+  ],
+  "1004": [{ group: "Past Visitors", headlines: ["Still Thinking It Over?", "Your Basket Is Waiting"] }],
+  "1005": [{ group: "Awareness", headlines: [] }],
+};
+
+/** Totals for a whole period, scaled by its length; seeded per item and period. */
+function periodFigures(seed: string, days: number, weight: number) {
+  const random = mulberry32(seedFrom(seed));
+  const impressions = Math.round(days * 1400 * weight * (0.5 + random()));
+  const clicks = Math.max(1, Math.round(impressions * (0.02 + random() * 0.05)));
+  const conversions = Math.round(clicks * (0.02 + random() * 0.09));
+  const cost = clicks * (0.9 + random() * 1.6);
+  return {
+    impressions: String(impressions),
+    clicks: String(clicks),
+    costMicros: String(Math.round(cost * 1_000_000)),
+    conversions,
+  };
+}
+
+/** Generated ads in ad_group_ad's shape. Performance Max has none, as in Google. */
+export function buildSampleAds({
+  customerId,
+  startDate,
+  endDate,
+}: {
+  customerId: string;
+  startDate: string;
+  endDate: string;
+}): AdRow[] {
+  const days = eachDay(startDate, endDate).length;
+
+  return CAMPAIGNS.flatMap((campaign) =>
+    (SAMPLE_ADS[campaign.id] ?? []).map((ad, index) => {
+      const id = `${campaign.id}${index + 1}`;
+      const video = ad.headlines.length === 0;
+      return {
+        campaign: { id: campaign.id, name: campaign.name },
+        adGroup: { id: `${campaign.id}0`, name: ad.group },
+        adGroupAd: {
+          status: campaign.status,
+          ad: {
+            id,
+            name: video ? "Spring launch — 15s" : undefined,
+            type: video ? "VIDEO_RESPONSIVE_AD" : "RESPONSIVE_SEARCH_AD",
+            responsiveSearchAd: video ? undefined : { headlines: ad.headlines.map((text) => ({ text })) },
+          },
+        },
+        metrics: periodFigures(`${customerId}:ad:${id}:${startDate}:${endDate}`, days, campaign.weight / 2),
+      };
+    })
+  );
+}
+
+const SAMPLE_KEYWORDS = [
+  { campaign: 0, text: "brand name", matchType: "EXACT" },
+  { campaign: 0, text: "brand name shop", matchType: "PHRASE" },
+  { campaign: 0, text: "brand name delivery", matchType: "PHRASE" },
+  { campaign: 0, text: "brand discount code", matchType: "BROAD" },
+  { campaign: 1, text: "best alternative to rival", matchType: "PHRASE" },
+  { campaign: 1, text: "rival prices", matchType: "EXACT" },
+  { campaign: 1, text: "cheaper than rival", matchType: "BROAD" },
+  { campaign: 1, text: "rival vs brand", matchType: "PHRASE" },
+];
+
+/** Generated keywords in keyword_view's shape, for the two Search campaigns. */
+export function buildSampleKeywords({
+  customerId,
+  startDate,
+  endDate,
+}: {
+  customerId: string;
+  startDate: string;
+  endDate: string;
+}): KeywordRow[] {
+  const days = eachDay(startDate, endDate).length;
+
+  return SAMPLE_KEYWORDS.map((keyword, index) => {
+    const campaign = CAMPAIGNS[keyword.campaign];
+    return {
+      campaign: { id: campaign.id, name: campaign.name },
+      adGroup: { id: `${campaign.id}0`, name: SAMPLE_ADS[campaign.id][0].group },
+      adGroupCriterion: {
+        criterionId: String(5000 + index),
+        status: "ENABLED",
+        keyword: { text: keyword.text, matchType: keyword.matchType },
+      },
+      metrics: periodFigures(`${customerId}:kw:${index}:${startDate}:${endDate}`, days, campaign.weight / 4),
+    };
+  });
 }

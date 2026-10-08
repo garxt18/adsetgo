@@ -42,8 +42,7 @@ export function ClientPortal({
     <>
       <CampaignCsvButton
         clientName={client.name}
-        period={report?.period}
-        campaigns={campaigns}
+        report={report}
         disabled={state.status !== "ready"}
       />
       <DownloadPdfButton
@@ -83,6 +82,7 @@ export function ClientPortal({
               onClick={() => selectTab("campaigns")}
             />
             <TopBarTab label="Calls" active={tab === "calls"} onClick={() => selectTab("calls")} />
+            <TopBarTab label="Ads" active={tab === "ads"} onClick={() => selectTab("ads")} />
           </>
         }
         actions={
@@ -140,7 +140,7 @@ export function ClientPortal({
               </dt>
               <dd className="tabular mt-1 text-ink">
                 {formatNumber(campaigns.length)}
-                {report ? ` · ${formatCurrency(report.metrics.cost)} spent` : ""}
+                {report ? ` · ${formatCurrency(report.metrics.cost, report.currency)} spent` : ""}
               </dd>
             </div>
           </dl>

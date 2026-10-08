@@ -12,7 +12,6 @@ import { Card, StatTile } from "@/components/ui/card";
 import { CopyButton } from "@/components/ui/copy";
 import { Modal } from "@/components/ui/modal";
 import { StatusPill } from "@/components/ui/status-pill";
-import { ResetLinkButton } from "@/components/reset-link-button";
 import { BrandLockup } from "@/components/ui/brand";
 import { FilterChips } from "@/components/ui/filter-chips";
 import { ThemeToggle } from "@/components/ui/theme";
@@ -362,12 +361,6 @@ export default function MasterDashboard() {
                             label="Copy login link"
                             text={() => `${window.location.origin}/agencies/${agency.slug}/login`}
                           />
-                          {agency.owner_email ? (
-                            <ResetLinkButton
-                              endpoint={`/api/agencies/${agency.slug}/owner-access-link`}
-                              who={`${agency.name}'s owner`}
-                            />
-                          ) : null}
                           <Button
                             variant="danger"
                             size="sm"

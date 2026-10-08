@@ -1,12 +1,13 @@
 import type { Agency } from "./agencies.ts";
 import {
+  fetchAccountCurrency,
   fetchReportRows,
   forgetGoogleAdsAccessToken,
   getGoogleAdsAccessToken,
 } from "./google-ads/auth.ts";
 import { normalizeGoogleAdsCustomerId } from "./google-ads/format.ts";
 import { percentChange, periodOf, type ResolvedRange } from "./google-ads/date-range.ts";
-import { groupByDay, summarize } from "./google-ads/report.ts";
+import { groupByDay, summarize, totalsByCurrency } from "./google-ads/report.ts";
 import { isSampleDataEnabled } from "./google-ads/sample-data.ts";
 import { supabaseAdmin } from "./supabase/admin.ts";
 
@@ -64,17 +65,16 @@ export async function buildAgencyOverview(agency: Agency, range: ResolvedRange) 
 
   async function loadClient(client: ClientRow) {
     const customerId = normalizeGoogleAdsCustomerId(client.google_ads_customer_id);
-    const empty = { client, current: null, previous: null, spendSeries: [] };
+    const empty = { client, current: null, previous: null, spendSeries: [], currency: null };
 
     if (!customerId || connectionError) return empty;
 
     try {
-      const [rows, previousRows] = await fetchReportRows({
-        agencyId,
-        customerId,
-        managerCustomerId,
-        range,
-      });
+      const query = { agencyId, customerId, managerCustomerId, range };
+      const [[rows, previousRows], currency] = await Promise.all([
+        fetchReportRows(query),
+        fetchAccountCurrency(query),
+      ]);
 
       // Only what the client list shows; the full report is a click away.
       const { impressions, clicks, cost, conversions, costPerConversion } = summarize(rows);
@@ -84,7 +84,8 @@ export async function buildAgencyOverview(agency: Agency, range: ResolvedRange) 
         client,
         current: { impressions, clicks, cost, conversions, costPerConversion },
         previous,
-        spendSeries: groupByDay(rows).map((day) => ({ label: day.date, value: day.cost })),
+        spendSeries: groupByDay(rows, range.start, range.end).map((day) => ({ label: day.date, value: day.cost })),
+        currency,
       };
     } catch {
       // One client's account failing must not blank the whole agency's list.
@@ -102,7 +103,7 @@ export async function buildAgencyOverview(agency: Agency, range: ResolvedRange) 
     results.push(...(await Promise.all(batch.map(loadClient))));
   }
 
-  const rows = results.map(({ client, current, previous, spendSeries }) => ({
+  const rows = results.map(({ client, current, previous, spendSeries, currency }) => ({
     id: client.id,
     name: client.name,
     email: client.email,
@@ -113,19 +114,26 @@ export async function buildAgencyOverview(agency: Agency, range: ResolvedRange) 
     conversionChange:
       current && previous ? percentChange(current.conversions, previous.conversions) : null,
     spendSeries,
+    /** The account's currency; null when there are no figures to show. */
+    currency,
   }));
 
-  const totals = rows.reduce(
-    (acc, row) => {
-      if (!row.metrics) return acc;
-      acc.cost += row.metrics.cost;
-      acc.clicks += row.metrics.clicks;
-      acc.conversions += row.metrics.conversions;
-      acc.impressions += row.metrics.impressions;
-      return acc;
-    },
-    { cost: 0, clicks: 0, conversions: 0, impressions: 0 }
-  );
+  // Counts add up across clients; money only within one currency.
+  const withFigures = rows.filter((row) => row.metrics && row.currency);
+  const sum = (pick: (m: NonNullable<(typeof rows)[number]["metrics"]>) => number) =>
+    withFigures.reduce((total, row) => total + pick(row.metrics!), 0);
+  const totals = {
+    clicks: sum((m) => m.clicks),
+    conversions: sum((m) => m.conversions),
+    impressions: sum((m) => m.impressions),
+    spend: totalsByCurrency(
+      withFigures.map((row) => ({
+        currency: row.currency!,
+        cost: row.metrics!.cost,
+        conversions: row.metrics!.conversions,
+      }))
+    ),
+  };
 
   return {
     agency: {
@@ -137,12 +145,7 @@ export async function buildAgencyOverview(agency: Agency, range: ResolvedRange) 
     },
     period: periodOf(range),
     clients: rows,
-    totals: {
-      ...totals,
-      cost: Number(totals.cost.toFixed(2)),
-      costPerConversion:
-        totals.conversions > 0 ? Number((totals.cost / totals.conversions).toFixed(2)) : 0,
-    },
+    totals,
     connectionError,
     isSample: useSample,
   };

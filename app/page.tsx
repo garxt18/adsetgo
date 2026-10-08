@@ -26,10 +26,10 @@ export const metadata = {
 const STAGES = [
   {
     step: "01",
-    who: "You",
-    action: "Create the agency",
-    body: "Name it, pick its address, and enter the owner's email. A private, single-use invitation is created for exactly that address.",
-    sees: "Every agency, its owner, its client count and whether its Google Ads connection is healthy.",
+    who: "The agency",
+    action: "Create the workspace",
+    body: "Sign in with Google, name the agency and pick its address. It takes a minute, and nobody has to send a link first.",
+    sees: "Their own workspace, ready to connect Google Ads.",
   },
   {
     step: "02",
@@ -42,7 +42,7 @@ const STAGES = [
     step: "03",
     who: "The client",
     action: "Open their own report",
-    body: "One link, one password, and they are in. No spreadsheets, no monthly export, no waiting for an email.",
+    body: "One link, Continue with Google, and they are in. No passwords, no spreadsheets, no waiting for an email.",
     sees: "A plain sentence first, then the figures behind it, compared with the period before.",
   },
 ];
@@ -87,7 +87,10 @@ export default function Home() {
             </p>
 
             <div className="animate-rise delay-3 mt-8 flex flex-wrap items-center gap-3">
-              <ButtonLink href="/login">Sign in to your workspace</ButtonLink>
+              <ButtonLink href="/signup">Create your agency</ButtonLink>
+              <ButtonLink href="/login" variant="secondary">
+                Sign in
+              </ButtonLink>
               <a
                 href="#how"
                 className="rounded-xl px-4 py-2.5 text-sm font-medium text-ink-soft ring-1 ring-line transition hover:bg-surface hover:text-ink"
@@ -98,7 +101,7 @@ export default function Home() {
 
             <dl className="animate-rise delay-4 mt-12 grid max-w-lg grid-cols-3 gap-6 border-t border-line pt-6">
               <Fact label="Per client" value="Private" />
-              <Fact label="Access" value="Invite only" />
+              <Fact label="Sign in" value="With Google" />
               <Fact label="Themes" value="Light & dark" />
             </dl>
           </div>
@@ -181,12 +184,15 @@ export default function Home() {
                 before shown beside every figure.
               </p>
               <p>
-                Access is by invitation only. Nobody can sign themselves up to an agency, and
-                no agency can see another&apos;s clients.
+                Agencies create their own workspace with Google. Clients join only when their
+                agency adds them, and no agency can see another&apos;s clients.
               </p>
 
-              <div className="pt-4">
-                <ButtonLink href="/login">Sign in</ButtonLink>
+              <div className="flex flex-wrap gap-2 pt-4">
+                <ButtonLink href="/signup">Create your agency</ButtonLink>
+                <ButtonLink href="/login" variant="secondary">
+                  Sign in
+                </ButtonLink>
               </div>
             </div>
           </div>

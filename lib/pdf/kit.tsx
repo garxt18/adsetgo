@@ -270,6 +270,8 @@ export type Tile = {
   change?: number | null;
   invert?: boolean;
   neutral?: boolean;
+  /** Words rather than a figure, such as a campaign name: smaller, so it fits. */
+  text?: boolean;
 };
 
 /** Figures in rows of `columns`, each with its previous value and change. */
@@ -288,7 +290,7 @@ export function TileGrid({ tiles, columns = 4 }: { tiles: Tile[]; columns?: numb
                 {tile ? (
                   <>
                     <Text style={s.label}>{tile.label}</Text>
-                    <Text style={{ fontSize: 15, fontWeight: 600, marginTop: 5 }}>{tile.value}</Text>
+                    <Text style={{ fontSize: tile.text ? 10 : 15, fontWeight: 600, marginTop: 5 }}>{tile.value}</Text>
                     <View style={{ ...s.row, alignItems: "center", marginTop: 5 }}>
                       {tile.change !== undefined ? (
                         <Change change={tile.change} invert={tile.invert} neutral={tile.neutral} />

@@ -3,9 +3,16 @@ import {
   formatGoogleAdsCustomerId,
   normalizeGoogleAdsCustomerId,
 } from "./format.ts";
+import { TOP_KEYWORDS } from "./ads.ts";
 import type { ResolvedRange } from "./date-range.ts";
 import { forgetCached, reportCacheKey, withReportCache } from "./report-cache.ts";
-import { buildSampleCalls, buildSampleRows, isSampleDataEnabled } from "./sample-data.ts";
+import {
+  buildSampleAds,
+  buildSampleCalls,
+  buildSampleKeywords,
+  buildSampleRows,
+  isSampleDataEnabled,
+} from "./sample-data.ts";
 
 /**
  * Every Google Ads call goes through this one version. Google sunsets old
@@ -164,6 +171,46 @@ export type CallRow = {
     /** "AD" when dialled from the ad, "LANDING_PAGE" when from the website. */
     callTrackingDisplayLocation?: string;
   };
+};
+
+/** Totals for one ad or keyword over a whole period (no date segment). */
+type PeriodMetrics = {
+  impressions?: number | string;
+  clicks?: number | string;
+  costMicros?: number | string;
+  conversions?: number | string;
+};
+
+type AdText = { text?: string; pinnedField?: string };
+
+/** One ad from ad_group_ad, with the campaign and ad group it runs in. */
+export type AdRow = {
+  campaign?: { id?: string | number; name?: string };
+  adGroup?: { id?: string | number; name?: string };
+  adGroupAd?: {
+    status?: string;
+    ad?: {
+      id?: string | number;
+      name?: string;
+      type?: string;
+      responsiveSearchAd?: { headlines?: AdText[] };
+      responsiveDisplayAd?: { headlines?: AdText[] };
+      expandedTextAd?: { headlinePart1?: string; headlinePart2?: string };
+    };
+  };
+  metrics?: PeriodMetrics;
+};
+
+/** One keyword from keyword_view, with the campaign and ad group it bids in. */
+export type KeywordRow = {
+  campaign?: { id?: string | number; name?: string };
+  adGroup?: { id?: string | number; name?: string };
+  adGroupCriterion?: {
+    criterionId?: string | number;
+    status?: string;
+    keyword?: { text?: string; matchType?: string };
+  };
+  metrics?: PeriodMetrics;
 };
 
 /**
@@ -363,26 +410,32 @@ type WindowRequest = {
  * miss. In sample mode nothing reaches Google at all: no token, no quota.
  */
 function fetchWindows<T>(
-  { agencyId, customerId, managerCustomerId, range }: WindowRequest,
+  request: WindowRequest,
   kind: string,
   query: (start: string, end: string) => string,
   sample: (start: string, end: string) => T[]
 ): Promise<[T[], T[]]> {
-  const useSample = isSampleDataEnabled();
+  const { range } = request;
+  return Promise.all([
+    fetchWindow(request, kind, query, sample, range.start, range.end),
+    fetchWindow(request, kind, query, sample, range.previousStart, range.previousEnd),
+  ]);
+}
 
-  const load = (start: string, end: string) =>
-    useSample
-      ? Promise.resolve(sample(start, end))
-      : withReportCache(reportCacheKey([kind, customerId, managerCustomerId, start, end]), async () =>
-          searchStream<T>(
-            customerId,
-            managerCustomerId,
-            query(start, end),
-            await getGoogleAdsAccessToken(agencyId)
-          )
-        );
+/** One window of one kind of report: cached, or generated in sample mode. */
+function fetchWindow<T>(
+  { agencyId, customerId, managerCustomerId }: WindowRequest,
+  kind: string,
+  query: (start: string, end: string) => string,
+  sample: (start: string, end: string) => T[],
+  start: string,
+  end: string
+): Promise<T[]> {
+  if (isSampleDataEnabled()) return Promise.resolve(sample(start, end));
 
-  return Promise.all([load(range.start, range.end), load(range.previousStart, range.previousEnd)]);
+  return withReportCache(reportCacheKey([kind, customerId, managerCustomerId, start, end]), async () =>
+    searchStream<T>(customerId, managerCustomerId, query(start, end), await getGoogleAdsAccessToken(agencyId))
+  );
 }
 
 /** Campaign rows, one per campaign per day, behind a client's report. */
@@ -417,6 +470,41 @@ export function fetchReportRows(request: WindowRequest) {
  * other channels never appear here. It also hides callers' numbers, which is
  * why there is no "first-time caller" figure.
  */
+/** How long an account's currency is remembered: it is set when the account is made. */
+const CURRENCY_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The account's own currency (customer.currency_code), so a UK client's
+ * figures read in pounds. Google states figures in the account's currency;
+ * labelling them in another was the bug this fixes. Remembered for a day, so
+ * it costs about one operation per account per day. Sample figures are made up
+ * in rupees, so sample mode answers INR without asking Google.
+ */
+export async function fetchAccountCurrency({
+  agencyId,
+  customerId,
+  managerCustomerId,
+}: Omit<WindowRequest, "range">): Promise<string> {
+  if (isSampleDataEnabled()) return "INR";
+
+  return withReportCache(
+    reportCacheKey(["currency", customerId, managerCustomerId]),
+    async () => {
+      const [row] = await searchStream<{ customer?: { currencyCode?: string } }>(
+        customerId,
+        managerCustomerId,
+        "SELECT customer.currency_code FROM customer",
+        await getGoogleAdsAccessToken(agencyId)
+      );
+      const code = row?.customer?.currencyCode ?? "";
+      // ISO 4217 codes only; anything else would make every figure unreadable.
+      if (!/^[A-Z]{3}$/.test(code)) throw new Error(`Google Ads returned no currency for ${customerId}.`);
+      return code;
+    },
+    CURRENCY_TTL_MS
+  );
+}
+
 export function fetchCallRows(request: WindowRequest) {
   return fetchWindows<CallRow>(
     request,
@@ -433,6 +521,81 @@ export function fetchCallRows(request: WindowRequest) {
       WHERE call_view.start_call_date_time BETWEEN '${start} 00:00:00' AND '${end} 23:59:59'
     `,
     (startDate, endDate) => buildSampleCalls({ customerId: request.customerId, startDate, endDate })
+  );
+}
+
+/**
+ * Every ad that was shown in the period, with its totals for the whole period.
+ * The current period only: the Ads tab ranks ads rather than comparing them,
+ * so the window before would cost a query and show nowhere.
+ *
+ * Performance Max has no ads of its own here (it builds them from asset
+ * groups), so its campaigns appear in the report but not in this list.
+ */
+export function fetchAdRows(request: WindowRequest) {
+  const { range } = request;
+  return fetchWindow<AdRow>(
+    request,
+    "ads",
+    (start, end) => `
+      SELECT
+        ad_group_ad.ad.id,
+        ad_group_ad.ad.name,
+        ad_group_ad.ad.type,
+        ad_group_ad.ad.responsive_search_ad.headlines,
+        ad_group_ad.ad.responsive_display_ad.headlines,
+        ad_group_ad.ad.expanded_text_ad.headline_part1,
+        ad_group_ad.ad.expanded_text_ad.headline_part2,
+        ad_group_ad.status,
+        ad_group.id,
+        ad_group.name,
+        campaign.id,
+        campaign.name,
+        metrics.impressions,
+        metrics.clicks,
+        metrics.cost_micros,
+        metrics.conversions
+      FROM ad_group_ad
+      WHERE segments.date BETWEEN '${start}' AND '${end}' AND metrics.impressions > 0
+    `,
+    (startDate, endDate) => buildSampleAds({ customerId: request.customerId, startDate, endDate }),
+    range.start,
+    range.end
+  );
+}
+
+/**
+ * The period's best keywords: most conversions, then most clicks. Google
+ * sorts and trims them, so an account bidding on thousands of keywords still
+ * sends only these.
+ */
+export function fetchKeywordRows(request: WindowRequest) {
+  const { range } = request;
+  return fetchWindow<KeywordRow>(
+    request,
+    "keywords",
+    (start, end) => `
+      SELECT
+        ad_group_criterion.criterion_id,
+        ad_group_criterion.keyword.text,
+        ad_group_criterion.keyword.match_type,
+        ad_group_criterion.status,
+        ad_group.id,
+        ad_group.name,
+        campaign.id,
+        campaign.name,
+        metrics.impressions,
+        metrics.clicks,
+        metrics.cost_micros,
+        metrics.conversions
+      FROM keyword_view
+      WHERE segments.date BETWEEN '${start}' AND '${end}' AND metrics.impressions > 0
+      ORDER BY metrics.conversions DESC, metrics.clicks DESC
+      LIMIT ${TOP_KEYWORDS}
+    `,
+    (startDate, endDate) => buildSampleKeywords({ customerId: request.customerId, startDate, endDate }),
+    range.start,
+    range.end
   );
 }
 

@@ -4,11 +4,11 @@ import { SetPassword } from "@/components/set-password";
 
 export const metadata = { title: "Reset your password — AdSetGo" };
 
-/** Where a password-reset link lands, whether emailed or issued by an admin. */
+/** Where a platform admin reset link lands, if one is sent from Supabase. */
 export default function ResetPasswordPage() {
   return (
     <Suspense>
-      <SetPassword mode="reset" />
+      <SetPassword />
     </Suspense>
   );
 }
