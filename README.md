@@ -187,6 +187,29 @@ Facebook/Bing figures; those would need a call-tracking service such as
 CallRail. The tab loads through its own route (`/api/google-ads/calls`) only
 when opened, so the Google queries it costs are spent only when someone looks.
 
+## Conversions
+
+The **Conversions** tab, next to Campaigns, splits results by what the customer
+did and by the kind of campaign that brought them. It reads every conversion
+action from the campaign report segmented by conversion action
+(`segments.conversion_action_category`), so it shows whatever the account
+tracks: purchases, add to cart, lead forms, sign-ups, quotes, appointments,
+calls, page views, engagements, app installs, store visits and the rest. These
+are gathered into goals (sales, leads, calls, website, app, store), and a
+category Google adds later still shows under its own name.
+
+Campaign types come from `campaign.advertising_channel_type`: Search, Shopping,
+Video, Display, Performance Max, Demand Gen, App and others. Picking one narrows
+the whole tab without another request. Google refuses cost alongside conversion
+segments, so cost per conversion and ROAS are worked out per campaign type from
+the campaign report, which the main report has already cached. The Campaigns
+tab shows each campaign's type too.
+
+Secondary conversion actions (recorded but not counted in Conversions or used
+for bidding) are kept apart: they appear under All conversions and are marked
+Secondary, so the Conversions figure always matches the Overview and Google
+Ads. The tab loads through `/api/google-ads/conversions` only when opened.
+
 ## Report periods
 
 Every report screen has the presets (7, 14 and 30 days, this month, last month)
@@ -324,6 +347,7 @@ lib/
   google-ads/auth.ts      tokens, account tree and metrics queries
   google-ads/report.ts    the report arithmetic, shared by every figure on screen
   google-ads/calls.ts     the Calls tab's arithmetic
+  google-ads/conversions.ts  the Conversions tab: by conversion type and campaign type
   google-ads/ads.ts       the Ads tab's arithmetic: ads, highlights, keywords
   report-copy.ts          metric names and the summary sentence, for screen and PDF
   agency-overview.ts      the agency's client list with figures, for screen and PDF

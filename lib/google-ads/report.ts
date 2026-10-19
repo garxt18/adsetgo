@@ -105,6 +105,8 @@ export function groupByCampaign(rows: GoogleAdsRow[]) {
         id,
         name: first?.name ?? "Campaign",
         status: first?.status ?? "ENABLED",
+        /** Google's campaign type: SEARCH, SHOPPING, VIDEO, ... ("" if unknown). */
+        channel: first?.advertisingChannelType ?? "",
         impressions,
         clicks,
         cost,

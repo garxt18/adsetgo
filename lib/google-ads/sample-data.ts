@@ -1,4 +1,4 @@
-import type { AdRow, CallRow, GoogleAdsRow, KeywordRow } from "./auth.ts";
+import type { AdRow, CallRow, ConversionRow, GoogleAdsRow, KeywordRow } from "./auth.ts";
 import { eachDay } from "./date-range.ts";
 
 /**
@@ -18,12 +18,16 @@ import { eachDay } from "./date-range.ts";
  * grouping and period comparison all run the same code they run in production.
  */
 
+// New campaigns go at the end: each day's generator is drawn from in this
+// order, so appending leaves every earlier campaign's figures as they were.
 const CAMPAIGNS = [
-  { id: "1001", name: "Search — Brand", weight: 0.34, status: "ENABLED" },
-  { id: "1002", name: "Search — Competitors", weight: 0.24, status: "ENABLED" },
-  { id: "1003", name: "Performance Max — Retail", weight: 0.22, status: "ENABLED" },
-  { id: "1004", name: "Display — Remarketing", weight: 0.14, status: "ENABLED" },
-  { id: "1005", name: "Video — Awareness", weight: 0.06, status: "PAUSED" },
+  { id: "1001", name: "Search — Brand", weight: 0.34, status: "ENABLED", channel: "SEARCH" },
+  { id: "1002", name: "Search — Competitors", weight: 0.24, status: "ENABLED", channel: "SEARCH" },
+  { id: "1003", name: "Performance Max — Retail", weight: 0.22, status: "ENABLED", channel: "PERFORMANCE_MAX" },
+  { id: "1004", name: "Display — Remarketing", weight: 0.14, status: "ENABLED", channel: "DISPLAY" },
+  { id: "1005", name: "Video — Awareness", weight: 0.06, status: "PAUSED", channel: "VIDEO" },
+  { id: "1006", name: "Shopping — All Products", weight: 0.16, status: "ENABLED", channel: "SHOPPING" },
+  { id: "1007", name: "App — Installs", weight: 0.08, status: "ENABLED", channel: "MULTI_CHANNEL" },
 ];
 
 /** Small deterministic generator: the same account and day always agree. */
@@ -86,7 +90,12 @@ export function buildSampleRows({
       const conversions = Math.round(clicks * conversionRate);
 
       rows.push({
-        campaign: { id: campaign.id, name: campaign.name, status: campaign.status },
+        campaign: {
+          id: campaign.id,
+          name: campaign.name,
+          status: campaign.status,
+          advertisingChannelType: campaign.channel,
+        },
         segments: { date: day },
         // Shaped exactly as Google's reply (camelCase, numbers as strings),
         // so sample mode exercises the same reading code live data does.
@@ -118,8 +127,9 @@ export function buildSampleCalls({
   endDate: string;
 }): CallRow[] {
   const rows: CallRow[] = [];
-  // Search and Performance Max ads carry call assets; video rarely does.
-  const calling = CAMPAIGNS.filter((campaign) => !campaign.name.startsWith("Video"));
+  // Search, Performance Max and Display ads carry call assets; video,
+  // shopping and app campaigns rarely do.
+  const calling = CAMPAIGNS.filter((campaign) => ["SEARCH", "PERFORMANCE_MAX", "DISPLAY"].includes(campaign.channel));
   const totalWeight = calling.reduce((sum, campaign) => sum + campaign.weight, 0);
 
   for (const day of eachDay(startDate, endDate)) {
@@ -142,6 +152,142 @@ export function buildSampleCalls({
           callDurationSeconds: String(missed ? 0 : 35 + Math.round(random() * 420)),
           callTrackingDisplayLocation: random() < 0.72 ? "AD" : "LANDING_PAGE",
         },
+      });
+    }
+  }
+
+  return rows;
+}
+
+type SampleAction = { id: number; name: string; category: string; share: number; valued?: boolean };
+
+const PURCHASE: Omit<SampleAction, "share"> = { id: 1, name: "Purchase", category: "PURCHASE", valued: true };
+const ADD_TO_CART: Omit<SampleAction, "share"> = { id: 2, name: "Add to cart", category: "ADD_TO_CART", valued: true };
+const LEAD_FORM: Omit<SampleAction, "share"> = { id: 3, name: "Lead form submitted", category: "SUBMIT_LEAD_FORM" };
+const CALLS: Omit<SampleAction, "share"> = { id: 4, name: "Calls from ads", category: "PHONE_CALL_LEAD" };
+const APPOINTMENT: Omit<SampleAction, "share"> = { id: 5, name: "Appointment booked", category: "BOOK_APPOINTMENT" };
+const STORE_VISITS: Omit<SampleAction, "share"> = { id: 6, name: "Store visits", category: "STORE_VISIT" };
+const SIGN_UP: Omit<SampleAction, "share"> = { id: 7, name: "Newsletter sign-up", category: "SIGNUP" };
+const KEY_PAGES: Omit<SampleAction, "share"> = { id: 8, name: "Website visit — key pages", category: "PAGE_VIEW" };
+const APP_INSTALL: Omit<SampleAction, "share"> = { id: 9, name: "App install (Android)", category: "DOWNLOAD" };
+const IN_APP: Omit<SampleAction, "share"> = { id: 10, name: "In-app purchase", category: "PURCHASE", valued: true };
+/** Secondary: recorded under All conversions only, as many accounts set up engaged visits. */
+const ENGAGED = { id: 11, name: "Engaged visit (2+ pages)", category: "ENGAGEMENT" };
+
+/** Which conversion actions each campaign type brings, and in what shares. */
+const ACTION_MIX: Record<string, SampleAction[]> = {
+  SEARCH: [
+    { ...PURCHASE, share: 0.35 },
+    { ...LEAD_FORM, share: 0.3 },
+    { ...CALLS, share: 0.25 },
+    { ...APPOINTMENT, share: 0.1 },
+  ],
+  PERFORMANCE_MAX: [
+    { ...PURCHASE, share: 0.5 },
+    { ...ADD_TO_CART, share: 0.2 },
+    { ...LEAD_FORM, share: 0.15 },
+    { ...STORE_VISITS, share: 0.15 },
+  ],
+  DISPLAY: [
+    { ...LEAD_FORM, share: 0.4 },
+    { ...SIGN_UP, share: 0.35 },
+    { ...PURCHASE, share: 0.25 },
+  ],
+  VIDEO: [
+    { ...SIGN_UP, share: 0.5 },
+    { ...KEY_PAGES, share: 0.5 },
+  ],
+  SHOPPING: [
+    { ...PURCHASE, share: 0.75 },
+    { ...ADD_TO_CART, share: 0.25 },
+  ],
+  MULTI_CHANNEL: [
+    { ...APP_INSTALL, share: 0.8 },
+    { ...IN_APP, share: 0.2 },
+  ],
+};
+
+/** A whole number split by shares, largest remainders first, so the parts add up exactly. */
+function splitByShares(total: number, shares: number[]): number[] {
+  const exact = shares.map((share) => total * share);
+  const parts = exact.map(Math.floor);
+  let left = total - parts.reduce((sum, part) => sum + part, 0);
+
+  const byRemainder = exact.map((value, index) => index).sort((a, b) => exact[b] - parts[b] - (exact[a] - parts[a]));
+  for (const index of byRemainder) {
+    if (left <= 0) break;
+    parts[index] += 1;
+    left -= 1;
+  }
+
+  return parts;
+}
+
+/**
+ * Generated conversions in the shape of the campaign report segmented by
+ * conversion action. Each campaign's conversions and value are its generated
+ * campaign figures split across its type's actions, so the Conversions tab
+ * adds up to exactly what the Overview shows.
+ */
+export function buildSampleConversions({
+  customerId,
+  startDate,
+  endDate,
+}: {
+  customerId: string;
+  startDate: string;
+  endDate: string;
+}): ConversionRow[] {
+  const totals = new Map<string, { conversions: number; value: number; clicks: number }>();
+  for (const row of buildSampleRows({ customerId, startDate, endDate })) {
+    const id = String(row.campaign?.id);
+    const total = totals.get(id) ?? { conversions: 0, value: 0, clicks: 0 };
+    total.conversions += Number(row.metrics?.conversions ?? 0);
+    total.value += Number(row.metrics?.conversionsValue ?? 0);
+    total.clicks += Number(row.metrics?.clicks ?? 0);
+    totals.set(id, total);
+  }
+
+  const action = (id: number) => `customers/${customerId}/conversionActions/${id}`;
+  const rows: ConversionRow[] = [];
+
+  for (const campaign of CAMPAIGNS) {
+    const total = totals.get(campaign.id);
+    if (!total) continue;
+
+    const mix = ACTION_MIX[campaign.channel] ?? [];
+    const counts = splitByShares(total.conversions, mix.map((a) => a.share));
+    // Value goes to the actions that carry one (purchases); if none came in,
+    // to every action, so the tab's value still matches the Overview's.
+    const valuedCount = mix.reduce((sum, a, i) => sum + (a.valued ? counts[i] : 0), 0);
+    const weightOf = (i: number) => (valuedCount > 0 ? (mix[i].valued ? counts[i] : 0) : counts[i]);
+    const totalWeight = counts.reduce((sum, _, i) => sum + weightOf(i), 0);
+    const base = {
+      campaign: { id: campaign.id, name: campaign.name, advertisingChannelType: campaign.channel },
+    };
+
+    mix.forEach((a, i) => {
+      if (counts[i] === 0) return;
+      const value = totalWeight > 0 ? (total.value * weightOf(i)) / totalWeight : 0;
+      rows.push({
+        ...base,
+        segments: { conversionAction: action(a.id), conversionActionName: a.name, conversionActionCategory: a.category },
+        metrics: { conversions: counts[i], conversionsValue: value, allConversions: counts[i], allConversionsValue: value },
+      });
+    });
+
+    const engaged = ["SEARCH", "DISPLAY", "PERFORMANCE_MAX"].includes(campaign.channel)
+      ? Math.round(total.clicks * 0.12)
+      : 0;
+    if (engaged > 0) {
+      rows.push({
+        ...base,
+        segments: {
+          conversionAction: action(ENGAGED.id),
+          conversionActionName: ENGAGED.name,
+          conversionActionCategory: ENGAGED.category,
+        },
+        metrics: { conversions: 0, conversionsValue: 0, allConversions: engaged, allConversionsValue: 0 },
       });
     }
   }

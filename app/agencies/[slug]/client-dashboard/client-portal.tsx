@@ -81,6 +81,11 @@ export function ClientPortal({
               active={tab === "campaigns"}
               onClick={() => selectTab("campaigns")}
             />
+            <TopBarTab
+              label="Conversions"
+              active={tab === "conversions"}
+              onClick={() => selectTab("conversions")}
+            />
             <TopBarTab label="Calls" active={tab === "calls"} onClick={() => selectTab("calls")} />
             <TopBarTab label="Ads" active={tab === "ads"} onClick={() => selectTab("ads")} />
           </>

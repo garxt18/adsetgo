@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { AdsReportView } from "@/components/ads-report";
 import { CallReportView } from "@/components/call-report";
+import { ConversionReportView } from "@/components/conversion-report";
 import {
   ClientReport,
   type Campaign,
@@ -84,12 +85,13 @@ export function ReportPanel({ state, tab }: { state: ReportState; tab: ReportTab
     <>
       {report?.isSample && status !== "unavailable" ? <SampleBanner className="mt-4" /> : null}
 
-      {/* Calls and Ads load only when their tab is opened: they cost their
-          own Google queries. The main report stays mounted underneath, so its
-          settings survive a look at either. */}
+      {/* Conversions, Calls and Ads load only when their tab is opened: they
+          cost their own Google queries. The main report stays mounted
+          underneath, so its settings survive a look at any of them. */}
+      {tab === "conversions" ? <ConversionReportView clientId={state.clientId} range={state.range} /> : null}
       {tab === "calls" ? <CallReportView clientId={state.clientId} range={state.range} /> : null}
       {tab === "ads" ? <AdsReportView clientId={state.clientId} range={state.range} /> : null}
-      <div className={tab === "calls" || tab === "ads" ? "hidden" : undefined}>{main}</div>
+      <div className={tab === "overview" || tab === "campaigns" ? undefined : "hidden"}>{main}</div>
     </>
   );
 }
