@@ -23,12 +23,15 @@ import {
   type Metrics,
 } from "@/lib/report-copy";
 import { shortDay } from "@/lib/google-ads/date-range";
+import { channelLabel } from "@/lib/google-ads/conversions";
 import { campaignHighlights, orderCampaigns } from "@/lib/google-ads/report";
 
 export type Campaign = {
   id: string;
   name: string;
   status: string;
+  /** Google's campaign type (SEARCH, SHOPPING, VIDEO, ...); "" if unknown. */
+  channel: string;
   impressions: number;
   clicks: number;
   cost: number;
@@ -57,8 +60,8 @@ const ORDER_NOTE = {
   lowest: "Weakest first: fewest conversions, the dearer first on a tie.",
 } as const;
 
-/** The report's views. Calls and Ads have their own components and load separately. */
-export type ReportTab = "overview" | "campaigns" | "calls" | "ads";
+/** The report's views. Conversions, Calls and Ads have their own components and load separately. */
+export type ReportTab = "overview" | "campaigns" | "conversions" | "calls" | "ads";
 
 export function ClientReport({
   metrics,
@@ -258,6 +261,7 @@ export function ClientReport({
                 <thead>
                   <tr className="border-b border-line text-left text-[11px] font-medium uppercase tracking-[0.1em] text-ink-faint">
                     <th className="px-5 py-2.5">Campaign</th>
+                    <th className="px-5 py-2.5">Type</th>
                     <th className="px-5 py-2.5">Status</th>
                     <th className="px-5 py-2.5 text-right">Spend</th>
                     <th className="px-5 py-2.5 text-right">Clicks</th>
@@ -277,6 +281,7 @@ export function ClientReport({
                       <td className="max-w-[14rem] truncate px-5 py-2.5 font-medium text-ink" title={campaign.name}>
                         {campaign.name}
                       </td>
+                      <td className="whitespace-nowrap px-5 py-2.5 text-ink-soft">{channelLabel(campaign.channel)}</td>
                       <td className="px-5 py-2.5">
                         <StatusPill status={campaign.status} />
                       </td>

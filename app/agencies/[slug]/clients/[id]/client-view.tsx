@@ -112,6 +112,11 @@ export function ClientView({
             active={tab === "campaigns"}
             onClick={() => setTab("campaigns")}
           />
+          <TabButton
+            label="Conversions"
+            active={tab === "conversions"}
+            onClick={() => setTab("conversions")}
+          />
           <TabButton label="Calls" active={tab === "calls"} onClick={() => setTab("calls")} />
           <TabButton label="Ads" active={tab === "ads"} onClick={() => setTab("ads")} />
         </div>

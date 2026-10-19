@@ -156,6 +156,7 @@ function line(id: string, m: { cost: number; conversions: number; impressions?: 
     id,
     name: `Campaign ${id}`,
     status: m.status ?? "ENABLED",
+    channel: "SEARCH",
     impressions: m.impressions ?? 100,
     clicks: 10,
     cost: m.cost,

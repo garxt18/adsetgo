@@ -9,6 +9,7 @@ import { forgetCached, reportCacheKey, withReportCache } from "./report-cache.ts
 import {
   buildSampleAds,
   buildSampleCalls,
+  buildSampleConversions,
   buildSampleKeywords,
   buildSampleRows,
   isSampleDataEnabled,
@@ -146,6 +147,8 @@ export type GoogleAdsRow = {
     id?: string | number;
     name?: string;
     status?: string;
+    /** SEARCH, SHOPPING, VIDEO, DISPLAY, PERFORMANCE_MAX, DEMAND_GEN, ... */
+    advertisingChannelType?: string;
   };
   metrics?: {
     impressions?: number | string;
@@ -170,6 +173,30 @@ export type CallRow = {
     callDurationSeconds?: number | string;
     /** "AD" when dialled from the ad, "LANDING_PAGE" when from the website. */
     callTrackingDisplayLocation?: string;
+  };
+};
+
+/**
+ * One conversion action's results in one campaign over a whole period, from
+ * the campaign report segmented by conversion action. Google allows only
+ * conversion metrics alongside these segments: no cost, clicks or impressions.
+ */
+export type ConversionRow = {
+  campaign?: { id?: string | number; name?: string; advertisingChannelType?: string };
+  segments?: {
+    /** customers/123/conversionActions/456 */
+    conversionAction?: string;
+    conversionActionName?: string;
+    /** PURCHASE, SUBMIT_LEAD_FORM, PAGE_VIEW, DOWNLOAD, PHONE_CALL_LEAD, ... */
+    conversionActionCategory?: string;
+  };
+  metrics?: {
+    /** Actions counted in the Conversions column (primary actions). */
+    conversions?: number | string;
+    conversionsValue?: number | string;
+    /** Every action, secondary ones included. */
+    allConversions?: number | string;
+    allConversionsValue?: number | string;
   };
 };
 
@@ -449,6 +476,7 @@ export function fetchReportRows(request: WindowRequest) {
         campaign.id,
         campaign.name,
         campaign.status,
+        campaign.advertising_channel_type,
         metrics.impressions,
         metrics.clicks,
         metrics.cost_micros,
@@ -521,6 +549,37 @@ export function fetchCallRows(request: WindowRequest) {
       WHERE call_view.start_call_date_time BETWEEN '${start} 00:00:00' AND '${end} 23:59:59'
     `,
     (startDate, endDate) => buildSampleCalls({ customerId: request.customerId, startDate, endDate })
+  );
+}
+
+/**
+ * Every conversion action that recorded anything, per campaign, for the period
+ * and the one before: purchases, leads, sign-ups, app installs, page views,
+ * calls and the rest, each under the category the account gave it.
+ *
+ * Filtered on all_conversions so secondary actions -- recorded but left out of
+ * the Conversions column -- still appear, marked as such by the report.
+ */
+export function fetchConversionRows(request: WindowRequest) {
+  return fetchWindows<ConversionRow>(
+    request,
+    "conversions",
+    (start, end) => `
+      SELECT
+        campaign.id,
+        campaign.name,
+        campaign.advertising_channel_type,
+        segments.conversion_action,
+        segments.conversion_action_name,
+        segments.conversion_action_category,
+        metrics.conversions,
+        metrics.conversions_value,
+        metrics.all_conversions,
+        metrics.all_conversions_value
+      FROM campaign
+      WHERE segments.date BETWEEN '${start}' AND '${end}' AND metrics.all_conversions > 0
+    `,
+    (startDate, endDate) => buildSampleConversions({ customerId: request.customerId, startDate, endDate })
   );
 }
 
