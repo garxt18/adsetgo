@@ -10,7 +10,8 @@
  * without another request to Google.
  */
 
-import type { ConversionRow, GoogleAdsRow } from "./auth.ts";
+import type { CallActionRow, ConversionRow, GoogleAdsRow } from "./auth.ts";
+import { callActions, callRule } from "./calls.ts";
 import { percentChange, periodOf, type ResolvedRange } from "./date-range.ts";
 import { summarize } from "./report.ts";
 
@@ -20,7 +21,9 @@ const round2 = (value: number) => Number(value.toFixed(2));
 export const CONVERSION_GOALS = {
   sales: "Purchases & sales",
   leads: "Leads",
-  calls: "Calls",
+  // Not just "Calls": the Calls tab counts every call, and only some of them
+  // meet a call action's rules. The same word for both read as a mismatch.
+  calls: "Calls counted as conversions",
   website: "Website visits & engagement",
   app: "App installs",
   store: "Store visits & directions",
@@ -298,6 +301,7 @@ export function buildConversionReport({
   previousCampaignRows,
   isSample,
   currency,
+  callActionRows = [],
 }: {
   range: ResolvedRange;
   rows: ConversionRow[];
@@ -308,6 +312,8 @@ export function buildConversionReport({
   isSample: boolean;
   /** The account's currency code; every money figure here is in it. */
   currency: string;
+  /** The account's call conversion actions; empty when they could not be had. */
+  callActionRows?: CallActionRow[];
 }) {
   return {
     status: "connected" as const,
@@ -315,6 +321,14 @@ export function buildConversionReport({
     lines: conversionLines(rows),
     previousLines: conversionLines(previousRows),
     channels: channelLines(campaignRows, previousCampaignRows),
+    /**
+     * Which calls each call action counts, by action (as lines' actionId
+     * names it), so a call action says why it is fewer than the Calls tab.
+     */
+    callRules: Object.fromEntries(callActions(callActionRows).map((action) => [action.id, callRule(action)])) as Record<
+      string,
+      string
+    >,
     isSample,
     currency,
   };

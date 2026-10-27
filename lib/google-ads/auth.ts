@@ -8,6 +8,7 @@ import type { ResolvedRange } from "./date-range.ts";
 import { forgetCached, reportCacheKey, withReportCache } from "./report-cache.ts";
 import {
   buildSampleAds,
+  buildSampleCallActions,
   buildSampleCalls,
   buildSampleConversions,
   buildSampleKeywords,
@@ -197,6 +198,28 @@ export type ConversionRow = {
     /** Every action, secondary ones included. */
     allConversions?: number | string;
     allConversionsValue?: number | string;
+  };
+};
+
+/**
+ * One phone-call conversion action and the rules that decide which calls it
+ * counts, from the conversion_action resource.
+ */
+export type CallActionRow = {
+  conversionAction?: {
+    /** customers/123/conversionActions/456, as segments.conversion_action names it. */
+    resourceName?: string;
+    name?: string;
+    /** "AD_CALL" (calls from ads) or "WEBSITE_CALL" (calls from the website). */
+    type?: string;
+    /** "ENABLED", "HIDDEN" or "REMOVED". */
+    status?: string;
+    /** "ONE_PER_CLICK" or "MANY_PER_CLICK". */
+    countingType?: string;
+    /** The shortest call it counts; int64, so the REST API sends a string. */
+    phoneCallDurationSeconds?: number | string;
+    /** False for a secondary action: recorded under All conversions only. */
+    primaryForGoal?: boolean;
   };
 };
 
@@ -580,6 +603,50 @@ export function fetchConversionRows(request: WindowRequest) {
       WHERE segments.date BETWEEN '${start}' AND '${end}' AND metrics.all_conversions > 0
     `,
     (startDate, endDate) => buildSampleConversions({ customerId: request.customerId, startDate, endDate })
+  );
+}
+
+/** How long call conversion settings are remembered: they change rarely, and by hand. */
+const CALL_ACTIONS_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * The account's phone-call conversion actions with their counting rules: the
+ * shortest call each counts and whether it counts once per ad click. These are
+ * why the Calls tab's total and the calls counted as conversions differ.
+ *
+ * Calls from ads and calls from the website only -- the two kinds call_view
+ * lists. Clicks on a number on the website (CLICK_TO_CALL) are taps, not
+ * tracked calls, so they are left out. Removed actions are kept: one may still
+ * hold conversions from the period on screen.
+ */
+export async function fetchCallActions({
+  agencyId,
+  customerId,
+  managerCustomerId,
+}: Omit<WindowRequest, "range">): Promise<CallActionRow[]> {
+  if (isSampleDataEnabled()) return buildSampleCallActions(customerId);
+
+  return withReportCache(
+    reportCacheKey(["call-actions", customerId, managerCustomerId]),
+    async () =>
+      searchStream<CallActionRow>(
+        customerId,
+        managerCustomerId,
+        `
+          SELECT
+            conversion_action.resource_name,
+            conversion_action.name,
+            conversion_action.type,
+            conversion_action.status,
+            conversion_action.counting_type,
+            conversion_action.phone_call_duration_seconds,
+            conversion_action.primary_for_goal
+          FROM conversion_action
+          WHERE conversion_action.type IN ('AD_CALL', 'WEBSITE_CALL')
+        `,
+        await getGoogleAdsAccessToken(agencyId)
+      ),
+    CALL_ACTIONS_TTL_MS
   );
 }
 

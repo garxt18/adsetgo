@@ -1,4 +1,4 @@
-import type { AdRow, CallRow, ConversionRow, GoogleAdsRow, KeywordRow } from "./auth.ts";
+import type { AdRow, CallActionRow, CallRow, ConversionRow, GoogleAdsRow, KeywordRow } from "./auth.ts";
 import { eachDay } from "./date-range.ts";
 
 /**
@@ -293,6 +293,41 @@ export function buildSampleConversions({
   }
 
   return rows;
+}
+
+/**
+ * The sample account's call conversion settings, in conversion_action's shape:
+ * the "Calls from ads" action above, on Google's defaults (60 seconds, once per
+ * ad click), and a website call action that recorded nothing, as many accounts
+ * have.
+ */
+export function buildSampleCallActions(customerId: string): CallActionRow[] {
+  const action = (id: number) => `customers/${customerId}/conversionActions/${id}`;
+
+  return [
+    {
+      conversionAction: {
+        resourceName: action(CALLS.id),
+        name: CALLS.name,
+        type: "AD_CALL",
+        status: "ENABLED",
+        countingType: "ONE_PER_CLICK",
+        phoneCallDurationSeconds: "60",
+        primaryForGoal: true,
+      },
+    },
+    {
+      conversionAction: {
+        resourceName: action(12),
+        name: "Calls from website",
+        type: "WEBSITE_CALL",
+        status: "ENABLED",
+        countingType: "MANY_PER_CLICK",
+        phoneCallDurationSeconds: "90",
+        primaryForGoal: true,
+      },
+    },
+  ];
 }
 
 const SAMPLE_ADS: Record<string, Array<{ group: string; headlines: string[] }>> = {
