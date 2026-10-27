@@ -167,7 +167,7 @@ export function ConversionReportView({ clientId, range }: { clientId: string; ra
                   ? totals.conversions > 0
                     ? `${Math.round((goal.conversions / totals.conversions) * 100)}% of conversions${
                         goal.value > 0 ? ` · ${money(goal.value)} value` : ""
-                      }`
+                      }${goal.goal === "calls" ? " · every call is on the Calls tab" : ""}`
                     : undefined
                   : goal.allConversions > 0
                     ? "Secondary actions only: not counted as conversions"
@@ -327,7 +327,14 @@ export function ConversionReportView({ clientId, range }: { clientId: string; ra
                       <span className="block truncate" title={action.action}>
                         {action.action}
                       </span>
-                      <span className="mt-0.5 block truncate text-xs font-normal text-ink-soft">{action.label}</span>
+                      <span
+                        className="mt-0.5 block truncate text-xs font-normal text-ink-soft"
+                        title={data.callRules[action.key]}
+                      >
+                        {action.label}
+                        {/* A call action's rules say why it counts fewer than the Calls tab. */}
+                        {data.callRules[action.key] ? ` · ${data.callRules[action.key]}` : ""}
+                      </span>
                     </td>
                     <td className="max-w-[14rem] truncate px-5 py-2.5 text-ink-soft" title={action.channels.join(", ")}>
                       {action.channels.join(", ") || "—"}

@@ -5,7 +5,7 @@
  * and it is tested directly.
  */
 
-import type { CallRow } from "./auth.ts";
+import type { CallActionRow, CallRow, ConversionRow } from "./auth.ts";
 import { eachDay, percentChange, periodOf, type ResolvedRange } from "./date-range.ts";
 
 /** Headline call figures for one window. */
@@ -74,17 +74,122 @@ export function callsByCampaign(rows: CallRow[]) {
   return Array.from(campaigns.values()).sort((a, b) => b.calls - a.calls);
 }
 
+const round2 = (value: number) => Number(value.toFixed(2));
+
+/** Google's default for the shortest call a call conversion action counts. */
+const DEFAULT_CALL_SECONDS = 60;
+
+/** The account's phone-call conversion actions, read from conversion_action. */
+export function callActions(rows: CallActionRow[]) {
+  return rows.flatMap((row) => {
+    const action = row.conversionAction;
+    if (!action?.resourceName) return [];
+
+    const seconds = Number(action.phoneCallDurationSeconds ?? DEFAULT_CALL_SECONDS);
+    return [
+      {
+        id: action.resourceName,
+        name: action.name ?? "Call conversion action",
+        /** Which of call_view's calls it can count: dialled from the ad, or from the website. */
+        source: action.type === "WEBSITE_CALL" ? ("website" as const) : ("ad" as const),
+        enabled: action.status === "ENABLED",
+        minimumSeconds: Number.isFinite(seconds) ? seconds : DEFAULT_CALL_SECONDS,
+        oncePerClick: action.countingType === "ONE_PER_CLICK",
+        /** False for a secondary action: recorded under All conversions, never Conversions. */
+        primary: action.primaryForGoal !== false,
+      },
+    ];
+  });
+}
+
+export type CallAction = ReturnType<typeof callActions>[number];
+
+/** 60 reads as "1 minute", 90 as "90 seconds". */
+function callLength(seconds: number): string {
+  if (seconds % 60 !== 0) return `${seconds} seconds`;
+  const minutes = seconds / 60;
+  return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
+/** An action's counting rules in a line: "Calls of 1 minute or longer, once per ad click". */
+export function callRule({ minimumSeconds, oncePerClick }: Pick<CallAction, "minimumSeconds" | "oncePerClick">) {
+  const length = minimumSeconds > 0 ? `Calls of ${callLength(minimumSeconds)} or longer` : "Calls of any length";
+  return `${length}, ${oncePerClick ? "once per ad click" : "every call"}`;
+}
+
+/**
+ * How many of the period's calls counted as conversions, and the rules each
+ * call action counts them by.
+ *
+ * The two figures disagree by design: call_view lists every call Google
+ * tracked, while an action counts only answered calls at least its minimum
+ * length -- once per ad click if it is set to "One" -- and dates each by the
+ * ad click rather than the call. Calls long enough is worked out from
+ * call_view, so the reader can see which of those rules made the difference.
+ */
+export function callConversions(calls: CallRow[], conversionRows: ConversionRow[], actionRows: CallActionRow[]) {
+  const tallies = new Map<string, { conversions: number; allConversions: number }>();
+  for (const row of conversionRows) {
+    const id = row.segments?.conversionAction;
+    if (!id) continue;
+    const tally = tallies.get(id) ?? { conversions: 0, allConversions: 0 };
+    tally.conversions += Number(row.metrics?.conversions ?? 0);
+    tally.allConversions += Number(row.metrics?.allConversions ?? 0);
+    tallies.set(id, tally);
+  }
+
+  const sourceOf = (call: CallRow) =>
+    call.callView?.callTrackingDisplayLocation === "LANDING_PAGE" ? "website" : "ad";
+
+  const actions = callActions(actionRows)
+    .map((action) => {
+      const tally = tallies.get(action.id) ?? { conversions: 0, allConversions: 0 };
+      const fromSource = calls.filter((call) => sourceOf(call) === action.source);
+      return {
+        ...action,
+        rule: callRule(action),
+        /** Calls of the kind this action can count, whatever their length. */
+        calls: fromSource.length,
+        /** Of those, answered and at least the action's minimum length. */
+        longEnough: fromSource.filter(
+          (call) =>
+            call.callView?.callStatus === "RECEIVED" &&
+            Number(call.callView.callDurationSeconds ?? 0) >= action.minimumSeconds
+        ).length,
+        conversions: round2(tally.conversions),
+        allConversions: round2(tally.allConversions),
+      };
+    })
+    // A removed or paused action is only worth a line if it still counted something.
+    .filter((action) => action.enabled || action.allConversions > 0)
+    .sort((a, b) => b.conversions - a.conversions || b.calls - a.calls);
+
+  return {
+    counted: round2(actions.reduce((sum, action) => sum + action.conversions, 0)),
+    actions,
+  };
+}
+
+export type CallConversions = ReturnType<typeof callConversions>;
+
 /** The Calls tab: both windows, their comparison, and the breakdowns. */
 export function buildCallReport({
   range,
   rows,
   previousRows,
   isSample,
+  conversions = null,
 }: {
   range: ResolvedRange;
   rows: CallRow[];
   previousRows: CallRow[];
   isSample: boolean;
+  /**
+   * The period's conversion rows and the account's call actions, to say how
+   * many calls counted as conversions. Null when they could not be had: the
+   * call figures stand on their own.
+   */
+  conversions?: { rows: ConversionRow[]; actions: CallActionRow[] } | null;
 }) {
   const summary = summarizeCalls(rows);
   const previousSummary = summarizeCalls(previousRows);
@@ -100,6 +205,7 @@ export function buildCallReport({
     ) as Record<(typeof compared)[number], number | null>,
     byDay: callsByDay(rows, range.start, range.end),
     campaigns: callsByCampaign(rows),
+    conversions: conversions ? callConversions(rows, conversions.rows, conversions.actions) : null,
     isSample,
   };
 }

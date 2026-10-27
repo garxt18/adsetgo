@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireReportClient } from "@/lib/api-auth";
 import {
   fetchAccountCurrency,
+  fetchCallActions,
   fetchConversionRows,
   fetchReportRows,
   forgetGoogleAdsAccessToken,
@@ -40,10 +41,15 @@ export async function GET(request: NextRequest) {
   };
 
   try {
-    const [[rows, previousRows], [campaignRows, previousCampaignRows], currency] = await Promise.all([
+    const [[rows, previousRows], [campaignRows, previousCampaignRows], currency, callActionRows] = await Promise.all([
       fetchConversionRows(query),
       fetchReportRows(query),
       fetchAccountCurrency(query),
+      // Only the call actions' rules hang on this: without them the tab still loads.
+      fetchCallActions(query).catch((error: unknown) => {
+        console.error("Google Ads call actions fetch failed:", error);
+        return [];
+      }),
     ]);
 
     return NextResponse.json(
@@ -55,6 +61,7 @@ export async function GET(request: NextRequest) {
         previousCampaignRows,
         isSample: isSampleDataEnabled(),
         currency,
+        callActionRows,
       })
     );
   } catch (error: unknown) {

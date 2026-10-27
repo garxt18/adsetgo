@@ -4,12 +4,76 @@ import { DeltaChip, Donut, LineChart, Sparkline, type Point } from "@/components
 import { Card, CardHeader, EmptyState, StatTile } from "@/components/ui/card";
 import { useClientData } from "@/components/use-client-data";
 import { formatNumber } from "@/lib/format";
-import type { CallReport } from "@/lib/google-ads/calls";
+import type { CallConversions, CallReport } from "@/lib/google-ads/calls";
 import { shortDay, type RangeValue } from "@/lib/google-ads/date-range";
 
 /** 248 seconds reads as "4:08". */
 function minutes(seconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/** Data-driven attribution can split a call across campaigns, so counts may be fractional. */
+function count(value: number): string {
+  return Number.isInteger(value) ? formatNumber(value) : value.toFixed(1);
+}
+
+/**
+ * Why the Conversions tab shows fewer calls than this one: every call is
+ * listed here, but a call action counts only the calls that meet its rules.
+ * Each action's rules sit beside what it counted, and beside how many calls
+ * were answered and long enough, so the gap explains itself.
+ */
+function CountedCalls({ calls, counted }: { calls: number; counted: CallConversions }) {
+  const { actions } = counted;
+
+  return (
+    <Card className="animate-rise">
+      <CardHeader
+        title="Calls counted as conversions"
+        description={
+          actions.length > 0
+            ? `${count(counted.counted)} of ${formatNumber(calls)} calls counted as conversions. Google counts a call only when it meets its conversion action's rules.`
+            : "No call conversion action is set up in Google Ads, so none of these calls count as conversions."
+        }
+      />
+      {actions.length > 0 ? (
+        <>
+          <ul className="divide-y divide-line">
+            {actions.map((action) => (
+              <li key={action.id} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 py-3 text-sm">
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-ink" title={action.name}>
+                    {action.name}
+                  </p>
+                  <p className="mt-0.5 text-xs text-ink-soft">
+                    {action.rule}
+                    {action.primary ? "" : " · Secondary: recorded under All conversions only"}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="tabular font-medium text-ink">
+                    {count(action.primary ? action.conversions : action.allConversions)}{" "}
+                    <span className="font-normal text-ink-soft">{action.primary ? "counted" : "recorded"}</span>
+                  </p>
+                  <p className="tabular mt-0.5 text-xs text-ink-soft">
+                    {formatNumber(action.longEnough)} of {formatNumber(action.calls)}{" "}
+                    {action.source === "website" ? "website" : "ad"} calls answered and long enough
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <p className="border-t border-line px-5 py-3 text-xs text-ink-faint">
+            {actions.some((action) => action.oncePerClick)
+              ? "Once per ad click means several calls after the same click count as one. "
+              : ""}
+            Google also dates a call conversion by the ad click, not the call, so one near the edge of the
+            period can fall in another.
+          </p>
+        </>
+      ) : null}
+    </Card>
+  );
 }
 
 function SectionTitle({ children }: { children: string }) {
@@ -109,6 +173,8 @@ export function CallReportView({ clientId, range }: { clientId: string; range: R
           </div>
         </StatTile>
       </div>
+
+      {data.conversions ? <CountedCalls calls={summary.calls} counted={data.conversions} /> : null}
 
       <Card className="animate-rise p-5">
         <div className="mb-3 flex items-baseline justify-between gap-3">

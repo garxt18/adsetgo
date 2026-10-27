@@ -1,10 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import type { CallRow } from "./auth.ts";
-import { buildCallReport, callsByCampaign, callsByDay, summarizeCalls } from "./calls.ts";
+import type { CallActionRow, CallRow, ConversionRow } from "./auth.ts";
+import {
+  buildCallReport,
+  callActions,
+  callConversions,
+  callRule,
+  callsByCampaign,
+  callsByDay,
+  summarizeCalls,
+} from "./calls.ts";
 import { resolveRange } from "./date-range.ts";
-import { buildSampleCalls } from "./sample-data.ts";
+import { buildSampleCallActions, buildSampleCalls, buildSampleConversions } from "./sample-data.ts";
 
 function call(at: string, status: "RECEIVED" | "MISSED", seconds: number, campaign = "1", where = "AD"): CallRow {
   return {
@@ -81,4 +89,107 @@ test("sample calls run through the same report, one point per day", () => {
   assert.equal(report.summary.calls, report.byDay.reduce((sum, d) => sum + d.calls, 0));
   assert.equal(report.summary.answered + report.summary.missed, report.summary.calls);
   assert.equal(typeof report.changes.calls, "number");
+});
+
+const AD_ACTION = "customers/1/conversionActions/4";
+const SITE_ACTION = "customers/1/conversionActions/5";
+
+function callAction(id: string, type: string, seconds: number | string | undefined, counting: string, extra = {}): CallActionRow {
+  return {
+    conversionAction: {
+      resourceName: id,
+      name: type === "AD_CALL" ? "Calls from ads" : "Calls from website",
+      type,
+      status: "ENABLED",
+      countingType: counting,
+      phoneCallDurationSeconds: seconds,
+      primaryForGoal: true,
+      ...extra,
+    },
+  };
+}
+
+function converted(action: string, conversions: number, allConversions = conversions): ConversionRow {
+  return {
+    campaign: { id: "1", name: "Campaign 1" },
+    segments: { conversionAction: action, conversionActionCategory: "PHONE_CALL_LEAD" },
+    metrics: { conversions, allConversions },
+  };
+}
+
+test("an action's rules read as a sentence", () => {
+  assert.equal(callRule({ minimumSeconds: 60, oncePerClick: true }), "Calls of 1 minute or longer, once per ad click");
+  assert.equal(callRule({ minimumSeconds: 90, oncePerClick: false }), "Calls of 90 seconds or longer, every call");
+  assert.equal(callRule({ minimumSeconds: 120, oncePerClick: false }), "Calls of 2 minutes or longer, every call");
+  assert.equal(callRule({ minimumSeconds: 0, oncePerClick: true }), "Calls of any length, once per ad click");
+});
+
+test("a missing call length falls back to Google's 60 seconds; int64 strings are read", () => {
+  const [unset, set] = callActions([
+    callAction(AD_ACTION, "AD_CALL", undefined, "ONE_PER_CLICK"),
+    callAction(SITE_ACTION, "WEBSITE_CALL", "45", "MANY_PER_CLICK"),
+  ]);
+  assert.equal(unset.minimumSeconds, 60);
+  assert.equal(unset.source, "ad");
+  assert.equal(set.minimumSeconds, 45);
+  assert.equal(set.source, "website");
+  assert.equal(set.oncePerClick, false);
+});
+
+test("counted calls set against the calls long enough, per action and its source", () => {
+  // From the ad: 120s and 30s answered, two missed. From the website: 60s answered.
+  const calls = [...CALLS, call("2026-03-02 12:00:00", "RECEIVED", 30)];
+  const result = callConversions(
+    calls,
+    [converted(AD_ACTION, 0.6), converted(AD_ACTION, 0.4), converted(SITE_ACTION, 1)],
+    [
+      callAction(AD_ACTION, "AD_CALL", 60, "ONE_PER_CLICK"),
+      callAction(SITE_ACTION, "WEBSITE_CALL", 90, "MANY_PER_CLICK"),
+    ]
+  );
+
+  assert.equal(result.counted, 2);
+  const [ad, site] = result.actions;
+  assert.deepEqual([ad.id, ad.calls, ad.longEnough, ad.conversions], [AD_ACTION, 4, 1, 1]);
+  // 60 seconds is short of this action's 90, so none of its calls qualify by length.
+  assert.deepEqual([site.id, site.calls, site.longEnough, site.conversions], [SITE_ACTION, 1, 0, 1]);
+  assert.equal(ad.rule, "Calls of 1 minute or longer, once per ad click");
+});
+
+test("a removed action shows only if it still counted something; secondary ones add nothing", () => {
+  const result = callConversions(
+    CALLS,
+    [converted(SITE_ACTION, 0, 3)],
+    [
+      callAction(AD_ACTION, "AD_CALL", 60, "ONE_PER_CLICK", { status: "REMOVED" }),
+      callAction(SITE_ACTION, "WEBSITE_CALL", 60, "ONE_PER_CLICK", { primaryForGoal: false }),
+    ]
+  );
+
+  assert.deepEqual(result.actions.map((a) => a.id), [SITE_ACTION]);
+  assert.equal(result.actions[0].primary, false);
+  assert.equal(result.actions[0].allConversions, 3);
+  assert.equal(result.counted, 0);
+});
+
+test("without conversion data the call report still builds, with nothing claimed", () => {
+  const range = resolveRange("last_7_days", new Date("2026-03-20T09:00:00Z"));
+  assert.equal(buildCallReport({ range, rows: CALLS, previousRows: [], isSample: true }).conversions, null);
+});
+
+test("sample calls and sample conversions agree on the call action", () => {
+  const range = resolveRange("last_14_days", new Date("2026-03-20T09:00:00Z"));
+  const args = { customerId: "1234567890", startDate: range.start, endDate: range.end };
+  const report = buildCallReport({
+    range,
+    rows: buildSampleCalls(args),
+    previousRows: [],
+    isSample: true,
+    conversions: { rows: buildSampleConversions(args), actions: buildSampleCallActions(args.customerId) },
+  });
+
+  const fromAds = report.conversions!.actions.find((a) => a.source === "ad")!;
+  assert.ok(fromAds.conversions > 0);
+  assert.ok(fromAds.longEnough <= fromAds.calls);
+  assert.equal(report.conversions!.counted, report.conversions!.actions.reduce((sum, a) => sum + a.conversions, 0));
 });
